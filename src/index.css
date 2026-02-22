@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  background: #0c0c0e;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #0c0c0e;
+  -webkit-font-smoothing: antialiased;
+}
