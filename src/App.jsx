@@ -22,6 +22,9 @@ function App() {
   const [isNavOpen, setIsNavOpen] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState('playback') // 'playback' | 'appearance'
+  const [playlists, setPlaylists] = useState([]) // {id, name, songIds[]}
+  const [newPlaylistName, setNewPlaylistName] = useState('')
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState(null)
   const audioRef = useRef(null)
 
   const handleUpload = (e) => {
@@ -52,6 +55,27 @@ function App() {
   const handleSelectSong = (index) => {
     setSelectedSongIndex(index)
     setCurrentTrackIndex(index)
+  }
+
+  const handlePlaySongClick = (index) => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (currentTrackIndex === index && isPlaying) {
+      audio.pause()
+      setIsPlaying(false)
+      return
+    }
+    setSelectedSongIndex(index)
+    setCurrentTrackIndex(index)
+    setIsPlaying(true)
+    // audio src will be set by effect, then play on next tick
+    setTimeout(() => {
+      if (!audioRef.current) return
+      audioRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch(() => setIsPlaying(false))
+    }, 0)
   }
 
   // Load track only when the active track index or its URL changes (not when other metadata changes)
@@ -157,17 +181,17 @@ function App() {
           else setIsPlaying(false)
         }}
       />
-      {/* Top bar: page title (My Library in purple) + actions */}
-      <header className="shrink-0 h-14 border-b border-white/10 bg-black/40 flex items-center justify-between px-6 sm:px-8">
-        <h1 className="text-sm sm:text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">
+      {/* Top bar: page title + actions (minimal text buttons) */}
+      <header className="shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center justify-between px-6 sm:px-8">
+        <h1 className="text-xl sm:text-2xl font-medium tracking-wide text-white">
           {activePage === 'upload' && 'Upload'}
           {activePage === 'songs' && (
-            <span className="text-violet-400">My Library</span>
+            <span className="text-violet-300">My Library</span>
           )}
           {activePage === 'playlists' && 'Playlists'}
         </h1>
         {activePage === 'songs' && (
-          <label className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-violet-600 hover:bg-violet-500 text-xs sm:text-sm font-medium text-white shadow-sm cursor-pointer transition">
+          <label className="inline-flex items-center justify-center gap-2 text-xl sm:text-2xl font-medium text-violet-300 hover:text-violet-100 cursor-pointer transition">
             <span>+ Add more</span>
             <input
               type="file"
@@ -222,8 +246,8 @@ function App() {
                   </button>
                 </div>
               ) : (
-                <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm px-3 sm:px-4 py-3 sm:py-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5 overflow-y-auto pr-1">
+                <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5 overflow-y-auto">
                     {songs.map((song, i) => (
                       <button
                         key={song.id}
@@ -235,7 +259,7 @@ function App() {
                             : 'hover:bg-white/[0.04]'
                         } ${i === currentTrackIndex ? 'opacity-100' : ''}`}
                       >
-                        <div className="w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center text-3xl shadow-inner">
+                        <div className="relative w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center text-3xl shadow-inner">
                           {song.coverUrl ? (
                             <img
                               src={song.coverUrl}
@@ -245,6 +269,34 @@ function App() {
                           ) : (
                             <span className="opacity-60">🎵</span>
                           )}
+                          <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handlePlaySongClick(i)
+                              }}
+                              className="w-12 h-12 rounded-full bg-white/90 text-black flex items-center justify-center shadow-lg hover:scale-105 transition"
+                            >
+                              {currentTrackIndex === i && isPlaying ? (
+                                <svg
+                                  className="w-6 h-6"
+                                  fill="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                                </svg>
+                              ) : (
+                                <svg
+                                  className="w-6 h-6 ml-0.5"
+                                  fill="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path d="M8 5v14l11-7z" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
                         </div>
                         <p className="text-sm font-medium truncate text-white/95">
                           {song.title || song.fileName}
@@ -363,12 +415,142 @@ function App() {
         )}
 
         {activePage === 'playlists' && (
-          <section className="flex-1 flex flex-col overflow-hidden min-w-0">
-            <div className="flex-1 flex flex-col items-center justify-center text-sm text-gray-500 gap-3">
-              <p>Playlist management is coming soon.</p>
-              <p className="text-xs text-gray-600">
-                You&apos;ll be able to create custom playlists from your library.
-              </p>
+          <section className="flex-1 flex flex-col overflow-hidden min-w-0 gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-2">
+              <div>
+                <p className="text-base text-gray-300">Playlists</p>
+                <p className="text-xs text-gray-500">
+                  Create playlists from your library and choose what to play.
+                </p>
+              </div>
+              <form
+                className="flex items-center gap-2 text-xs sm:text-sm"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const name = newPlaylistName.trim()
+                  if (!name) return
+                  setPlaylists((prev) => [
+                    ...prev,
+                    { id: crypto.randomUUID(), name, songIds: [] },
+                  ])
+                  setNewPlaylistName('')
+                }}
+              >
+                <input
+                  type="text"
+                  value={newPlaylistName}
+                  onChange={(e) => setNewPlaylistName(e.target.value)}
+                  placeholder="New playlist name"
+                  className="bg-white/[0.04] border border-white/10 rounded-full px-3 py-1.5 text-xs sm:text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-transparent"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 rounded-full border border-violet-500/70 text-violet-300 hover:bg-violet-500/10 text-xs sm:text-sm font-medium transition"
+                >
+                  Create
+                </button>
+              </form>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-4 flex-1 overflow-hidden">
+              <div className="sm:w-64 md:w-72 bg-white/[0.02] border border-white/8 rounded-2xl p-3 flex flex-col gap-2 overflow-auto">
+                {playlists.length === 0 ? (
+                  <p className="text-xs text-gray-500">
+                    No playlists yet. Create one to get started.
+                  </p>
+                ) : (
+                  playlists.map((pl) => (
+                    <button
+                      key={pl.id}
+                      type="button"
+                      onClick={() => setSelectedPlaylistId(pl.id)}
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs sm:text-sm flex items-center justify-between gap-2 transition ${
+                        pl.id === selectedPlaylistId
+                          ? 'bg-white/[0.08] text-white'
+                          : 'hover:bg-white/[0.04] text-gray-200'
+                      }`}
+                    >
+                      <span className="truncate">{pl.name}</span>
+                      <span className="text-[10px] text-gray-400">
+                        {
+                          pl.songIds.filter((id) =>
+                            songs.some((s) => s.id === id),
+                          ).length
+                        }{' '}
+                        tracks
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] p-3 sm:p-4 overflow-auto">
+                {selectedPlaylistId && playlists.length > 0 ? (
+                  <>
+                    <p className="text-xs sm:text-sm text-gray-300 mb-2">
+                      Songs in this playlist
+                    </p>
+                    <div className="space-y-1.5">
+                      {songs.map((song) => {
+                        const playlist = playlists.find(
+                          (pl) => pl.id === selectedPlaylistId,
+                        )
+                        const inPlaylist = playlist?.songIds.includes(song.id)
+                        return (
+                          <div
+                            key={song.id}
+                            className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 bg-white/[0.02] hover:bg-white/[0.06] text-xs sm:text-sm text-gray-200"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const index = songs.findIndex(
+                                  (s) => s.id === song.id,
+                                )
+                                if (index !== -1) handlePlaySongClick(index)
+                              }}
+                              className="flex items-center gap-2 min-w-0"
+                            >
+                              <span className="w-6 h-6 rounded-md bg-white/[0.08] flex items-center justify-center text-[10px] text-gray-300 shrink-0">
+                                {inPlaylist ? '♪' : '＋'}
+                              </span>
+                              <span className="truncate">
+                                {song.title || song.fileName}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPlaylists((prev) =>
+                                  prev.map((pl) =>
+                                    pl.id === selectedPlaylistId
+                                      ? {
+                                          ...pl,
+                                          songIds: inPlaylist
+                                            ? pl.songIds.filter(
+                                                (id) => id !== song.id,
+                                              )
+                                            : [...pl.songIds, song.id],
+                                        }
+                                      : pl,
+                                  ),
+                                )
+                              }}
+                              className="text-[11px] px-2 py-1 rounded-full border border-white/12 hover:border-white/40 text-gray-200"
+                            >
+                              {inPlaylist ? 'Remove' : 'Add'}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs sm:text-sm text-gray-500">
+                    Select a playlist on the left to manage its songs.
+                  </p>
+                )}
+              </div>
             </div>
           </section>
         )}
@@ -581,14 +763,14 @@ function App() {
           />
         </div>
 
-        {/* Settings toggle (moved left of logo) */}
+        {/* Settings toggle (left of logo) */}
         <button
           type="button"
           onClick={() => setShowSettings((prev) => !prev)}
-          className="ml-2 flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-white/25 text-gray-300 hover:text-white hover:border-white/60 bg-white/5 shrink-0"
+          className="ml-2 flex items-center justify-center w-11 h-11 sm:w-12 sm:h-12 rounded-full border border-white/25 text-gray-300 hover:text-white hover:border-white/60 bg-white/5 shrink-0"
         >
           <svg
-            className="w-4.5 h-4.5 sm:w-5 sm:h-5"
+            className="w-5 h-5 sm:w-6 sm:h-6"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -608,12 +790,12 @@ function App() {
           <button
             type="button"
             onClick={() => setIsNavOpen((prev) => !prev)}
-            className="flex flex-col items-center justify-center w-full h-full min-h-[96px] rounded-2xl bg-white/7 border border-white/12 hover:bg-white/12 hover:border-white/25 transition text-center py-4 px-8 gap-2"
+            className="flex flex-col items-center justify-center w-full h-full min-h-[96px] rounded-2xl bg-white/7 border border-white/12 hover:bg-white/12 hover:border-white/25 transition text-center py-4 px-8 gap-3"
           >
-            <span className="text-4xl sm:text-5xl font-bold tracking-[0.08em] sm:tracking-[0.12em] text-white block">
+            <span className="text-4xl sm:text-5xl font-normal tracking-[0.06em] text-white block" style={{ fontFamily: "'Dancing Script', cursive" }}>
               listenWell
             </span>
-            <span className="text-[10px] text-gray-400 block">
+            <span className="text-sm text-gray-300 block">
               {isNavOpen ? '▾ menu open' : '▴ open menu'}
             </span>
           </button>
@@ -652,28 +834,6 @@ function App() {
             </div>
           )}
         </div>
-
-        {/* Settings toggle */}
-        <button
-          type="button"
-          onClick={() => setShowSettings((prev) => !prev)}
-          className="ml-2 flex items-center justify-center w-8 h-8 rounded-full border border-white/20 text-gray-300 hover:text-white hover:border-white/50 bg-white/5 shrink-0"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.6}
-              d="M10.325 4.317a1 1 0 0 1 .948-.684h1.454a1 1 0 0 1 .948.684l.517 1.597a1 1 0 0 0 .95.69h1.68a1 1 0 0 1 .832 1.555l-.96 1.44a1 1 0 0 0 0 1.11l.96 1.44a1 1 0 0 1-.832 1.555h-1.68a1 1 0 0 0-.95.69l-.517 1.597a1 1 0 0 1-.948.684h-1.454a1 1 0 0 1-.948-.684l-.517-1.597a1 1 0 0 0-.95-.69h-1.68a1 1 0 0 1-.832-1.555l.96-1.44a1 1 0 0 0 0-1.11l-.96-1.44a1 1 0 0 1 .832-1.555h1.68a1 1 0 0 0 .95-.69l.517-1.597z"
-            />
-            <circle cx="12" cy="12" r="2.2" fill="currentColor" />
-          </svg>
-        </button>
       </footer>
     </div>
   )
