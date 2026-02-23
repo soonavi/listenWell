@@ -1,4 +1,5 @@
 import React from 'react'
+// eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion'
 import { Music2 } from 'lucide-react'
 
@@ -13,6 +14,8 @@ function SongsScreen({
   onGoToUpload,
   onCoverUpload,
   onMetadataChange,
+  onParallaxMove,
+  onParallaxLeave,
 }) {
   return (
     <>
@@ -30,7 +33,11 @@ function SongsScreen({
             </button>
           </div>
         ) : (
-          <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4">
+          <div
+            className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4 glass-card parallax-card"
+            onMouseMove={onParallaxMove}
+            onMouseLeave={onParallaxLeave}
+          >
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5 overflow-y-auto">
               {songs.map((song, i) => (
                 <motion.button
@@ -100,7 +107,11 @@ function SongsScreen({
       </section>
 
       {/* Right: Metadata Editor */}
-      <section className="w-full max-w-sm sm:max-w-md bg-white/[0.05] rounded-2xl border border-white/[0.08] p-5 flex flex-col gap-4 shrink-0 shadow-lg ml-1 sm:ml-2">
+      <section
+        className="w-full max-w-sm sm:max-w-md bg-white/[0.05] rounded-2xl border border-white/[0.08] p-5 flex flex-col gap-4 shrink-0 shadow-lg ml-1 sm:ml-2 glass-card parallax-card"
+        onMouseMove={onParallaxMove}
+        onMouseLeave={onParallaxLeave}
+      >
         <h2 className="text-sm font-semibold tracking-[0.18em] uppercase text-gray-300">
           Details
         </h2>
@@ -196,4 +207,3 @@ function SongsScreen({
 }
 
 export default SongsScreen
-
