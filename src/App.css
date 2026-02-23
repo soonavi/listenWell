@@ -46,11 +46,15 @@ button {
 /* One cat hanging over the top of the playback bar */
 .cat-hanging {
   position: absolute;
-  top: -14px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 2.5rem;
-  line-height: 1;
+  top: -32px;
+  right: 5rem;
+  width: 72px;
+  height: 72px;
   pointer-events: none;
   z-index: 5;
+  background-repeat: no-repeat;
+  background-size: contain;
+  background-position: center;
+  /* To enable: place an image at public/cat-hanging.png or adjust this path */
+  background-image: url('/cat-hanging.png');
 }

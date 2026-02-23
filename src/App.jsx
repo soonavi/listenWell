@@ -1,5 +1,18 @@
 import { useState, useRef, useEffect } from 'react'
 import './App.css'
+import UploadScreen from './components/UploadScreen'
+import SongsScreen from './components/SongsScreen'
+import PlaylistsScreen from './components/PlaylistsScreen'
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  Volume2,
+  Settings2,
+  UserCircle2,
+  Music2,
+} from 'lucide-react'
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -26,6 +39,43 @@ function App() {
   const [newPlaylistName, setNewPlaylistName] = useState('')
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null)
   const audioRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const sourceNodeRef = useRef(null)
+  const bassFilterRef = useRef(null)
+  const [recentItems, setRecentItems] = useState([]) // {type: 'song'|'playlist', id}
+
+  const markRecent = (type, id) => {
+    setRecentItems((prev) => {
+      const filtered = prev.filter((item) => !(item.type === type && item.id === id))
+      return [{ type, id }, ...filtered].slice(0, 30)
+    })
+  }
+
+  const ensureAudioGraph = () => {
+    const audioEl = audioRef.current
+    if (!audioEl || typeof window === 'undefined') return
+    const Ctx = window.AudioContext || window.webkitAudioContext
+    if (!Ctx) return
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new Ctx()
+    }
+    const ctx = audioContextRef.current
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {})
+    }
+
+    if (!sourceNodeRef.current) {
+      const source = ctx.createMediaElementSource(audioEl)
+      const bass = ctx.createBiquadFilter()
+      bass.type = 'lowshelf'
+      bass.frequency.value = 200
+      source.connect(bass)
+      bass.connect(ctx.destination)
+      sourceNodeRef.current = source
+      bassFilterRef.current = bass
+    }
+  }
 
   const handleUpload = (e) => {
     const files = Array.from(e.target.files || [])
@@ -68,6 +118,7 @@ function App() {
     setSelectedSongIndex(index)
     setCurrentTrackIndex(index)
     setIsPlaying(true)
+    markRecent('song', songs[index]?.id)
     // audio src will be set by effect, then play on next tick
     setTimeout(() => {
       if (!audioRef.current) return
@@ -101,6 +152,20 @@ function App() {
     const audio = audioRef.current
     if (audio) audio.playbackRate = playbackRate
   }, [playbackRate])
+
+  // Apply simple bass boost preset via Web Audio API
+  useEffect(() => {
+    if (eqPreset === 'bass') {
+      ensureAudioGraph()
+      if (bassFilterRef.current) {
+        bassFilterRef.current.gain.value = 10 // dB boost
+      }
+    } else {
+      if (bassFilterRef.current) {
+        bassFilterRef.current.gain.value = 0
+      }
+    }
+  }, [eqPreset])
 
   const handlePlayPause = () => {
     const audio = audioRef.current
@@ -181,378 +246,193 @@ function App() {
           else setIsPlaying(false)
         }}
       />
-      {/* Top bar: page title + actions (minimal text buttons) */}
-      <header className="shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center justify-between px-6 sm:px-8">
-        <h1 className="text-xl sm:text-2xl font-medium tracking-wide text-white">
-          {activePage === 'upload' && 'Upload'}
-          {activePage === 'songs' && (
-            <span className="text-violet-300">My Library</span>
-          )}
-          {activePage === 'playlists' && 'Playlists'}
-        </h1>
-        {activePage === 'songs' && (
-          <label className="inline-flex items-center justify-center gap-2 text-xl sm:text-2xl font-medium text-violet-300 hover:text-violet-100 cursor-pointer transition">
-            <span>+ Add more</span>
-            <input
-              type="file"
-              accept="audio/*"
-              multiple
-              className="hidden"
-              onChange={handleUpload}
-            />
-          </label>
-        )}
+      {/* Top bar: navigation buttons + context actions */}
+      <header className="shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center justify-center px-4 sm:px-8">
+        <nav className="flex items-center justify-center gap-2 sm:gap-3 w-full max-w-4xl">
+          {[
+            { id: 'library', label: 'Library' },
+            { id: 'playlists', label: 'Playlists' },
+            { id: 'songs', label: 'Songs' },
+            { id: 'upload', label: 'Upload' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActivePage(tab.id)}
+              className={`px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition border ${
+                activePage === tab.id
+                  ? 'bg-violet-600 border-violet-500 text-white'
+                  : 'bg-transparent border-transparent text-gray-300 hover:bg-white/[0.04]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
       </header>
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-hidden px-6 sm:px-8 py-6 flex gap-6 sm:gap-8">
-        {activePage === 'upload' && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-6">
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">
-              ListenWell
-            </h1>
-            <p className="text-gray-400 text-sm sm:text-base">
-              Upload your music to get started
-            </p>
-            <label className="cursor-pointer rounded-2xl border-2 border-dashed border-white/10 bg-white/[0.02] px-12 sm:px-16 py-10 sm:py-12 flex flex-col items-center gap-3 hover:border-violet-500/50 hover:bg-white/[0.04] transition-all duration-200">
-              <span className="text-4xl opacity-80">🎵</span>
-              <span className="text-sm text-gray-400">
-                Click to upload audio files
-              </span>
-              <input
-                type="file"
-                accept="audio/*"
-                multiple
-                className="hidden"
-                onChange={handleUpload}
-              />
-            </label>
-          </div>
-        )}
+        {activePage === 'upload' && <UploadScreen onUpload={handleUpload} />}
 
-        {activePage === 'songs' && (
-          <>
-            {/* Left: Song Grid */}
-            <section className="flex-1 flex flex-col overflow-hidden min-w-0">
-              {songs.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-sm text-gray-500 gap-3">
-                  <p>No songs yet.</p>
-                  <button
-                    type="button"
-                    onClick={() => setActivePage('upload')}
-                    className="px-4 py-2 rounded-full bg-white text-black text-xs font-medium hover:bg-gray-100 transition"
-                  >
-                    Upload music
-                  </button>
-                </div>
-              ) : (
-                <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5 overflow-y-auto">
-                    {songs.map((song, i) => (
+        {activePage === 'library' && (
+          <section className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <div className="mb-4">
+              <h2 className="text-base sm:text-lg font-semibold text-white">
+                Recently played
+              </h2>
+              <p className="text-xs text-gray-500">
+                Songs and playlists you&apos;ve listened to most recently.
+              </p>
+            </div>
+            <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm px-4 sm:px-5 py-3 sm:py-4 overflow-y-auto">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5">
+                {recentItems
+                  .map((item) => {
+                    if (item.type === 'song') {
+                      const song = songs.find((s) => s.id === item.id)
+                      if (!song) return null
+                      return {
+                        kind: 'song',
+                        key: `song-${song.id}`,
+                        song,
+                      }
+                    }
+                    if (item.type === 'playlist') {
+                      const pl = playlists.find((p) => p.id === item.id)
+                      if (!pl) return null
+                      return {
+                        kind: 'playlist',
+                        key: `pl-${pl.id}`,
+                        playlist: pl,
+                      }
+                    }
+                    return null
+                  })
+                  .filter(Boolean)
+                  .map((entry) =>
+                    entry.kind === 'song' ? (
                       <button
-                        key={song.id}
+                        key={entry.key}
                         type="button"
-                        onClick={() => handleSelectSong(i)}
-                        className={`flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1 transition-all duration-200 ${
-                          i === selectedSongIndex
-                            ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.04]'
-                            : 'hover:bg-white/[0.04]'
-                        } ${i === currentTrackIndex ? 'opacity-100' : ''}`}
+                        onClick={() => {
+                          const idx = songs.findIndex(
+                            (s) => s.id === entry.song.id,
+                          )
+                          if (idx !== -1) handlePlaySongClick(idx)
+                        }}
+                        className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1 transition-all duration-200 hover:bg-white/[0.04]"
                       >
-                        <div className="relative w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center text-3xl shadow-inner">
-                          {song.coverUrl ? (
+                        <div className="w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center text-3xl shadow-inner">
+                          {entry.song.coverUrl ? (
                             <img
-                              src={song.coverUrl}
+                              src={entry.song.coverUrl}
                               alt=""
                               className="w-full h-full object-cover"
                             />
                           ) : (
                             <span className="opacity-60">🎵</span>
                           )}
-                          <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handlePlaySongClick(i)
-                              }}
-                              className="w-12 h-12 rounded-full bg-white/90 text-black flex items-center justify-center shadow-lg hover:scale-105 transition"
-                            >
-                              {currentTrackIndex === i && isPlaying ? (
-                                <svg
-                                  className="w-6 h-6"
-                                  fill="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                                </svg>
-                              ) : (
-                                <svg
-                                  className="w-6 h-6 ml-0.5"
-                                  fill="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path d="M8 5v14l11-7z" />
-                                </svg>
-                              )}
-                            </button>
-                          </div>
                         </div>
                         <p className="text-sm font-medium truncate text-white/95">
-                          {song.title || song.fileName}
+                          {entry.song.title || entry.song.fileName}
                         </p>
-                        {song.artist ? (
+                        {entry.song.artist ? (
                           <p className="text-xs text-gray-500 truncate">
-                            {song.artist}
+                            {entry.song.artist}
                           </p>
                         ) : null}
                       </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </section>
-
-            {/* Right: Metadata Editor */}
-            <section className="w-full max-w-sm sm:max-w-md bg-white/[0.05] rounded-2xl border border-white/[0.08] p-5 flex flex-col gap-4 shrink-0 shadow-lg ml-1 sm:ml-2">
-              <h2 className="text-sm font-semibold tracking-[0.18em] uppercase text-gray-300">
-                Details
-              </h2>
-              {selectedSong ? (
-                <>
-                  <div className="flex gap-4 items-center">
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-white/[0.06] flex items-center justify-center text-2xl overflow-hidden shrink-0">
-                      {selectedSong.coverUrl ? (
-                        <img
-                          src={selectedSong.coverUrl}
-                          alt=""
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <span className="opacity-60">🎵</span>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 text-xs text-gray-500">
-                      <p className="truncate mb-1">{selectedSong.fileName}</p>
-                      <label className="inline-flex items-center gap-2 cursor-pointer text-violet-400 hover:text-violet-300 text-xs font-medium">
-                        Change cover
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handleCoverUpload}
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-3 text-sm">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-gray-500 font-medium">
-                        Title
-                      </label>
-                      <input
-                        type="text"
-                        value={selectedSong.title}
-                        onChange={(e) =>
-                          handleMetadataChange('title', e.target.value)
-                        }
-                        className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-transparent"
-                        placeholder="Song title"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-gray-500 font-medium">
-                        Artist
-                      </label>
-                      <input
-                        type="text"
-                        value={selectedSong.artist}
-                        onChange={(e) =>
-                          handleMetadataChange('artist', e.target.value)
-                        }
-                        className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-transparent"
-                        placeholder="Artist name"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-gray-500 font-medium">
-                        Album
-                      </label>
-                      <input
-                        type="text"
-                        value={selectedSong.album}
-                        onChange={(e) =>
-                          handleMetadataChange('album', e.target.value)
-                        }
-                        className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-transparent"
-                        placeholder="Album name"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-gray-500 font-medium">
-                        Description / notes
-                      </label>
-                      <textarea
-                        value={selectedSong.description}
-                        onChange={(e) =>
-                          handleMetadataChange('description', e.target.value)
-                        }
-                        rows={3}
-                        className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-transparent resize-none"
-                        placeholder="Optional notes"
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <p className="text-sm text-gray-500">
-                  Select a track to edit its details.
-                </p>
-              )}
-            </section>
-          </>
-        )}
-
-        {activePage === 'playlists' && (
-          <section className="flex-1 flex flex-col overflow-hidden min-w-0 gap-4">
-            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-2">
-              <div>
-                <p className="text-base text-gray-300">Playlists</p>
-                <p className="text-xs text-gray-500">
-                  Create playlists from your library and choose what to play.
-                </p>
-              </div>
-              <form
-                className="flex items-center gap-2 text-xs sm:text-sm"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  const name = newPlaylistName.trim()
-                  if (!name) return
-                  setPlaylists((prev) => [
-                    ...prev,
-                    { id: crypto.randomUUID(), name, songIds: [] },
-                  ])
-                  setNewPlaylistName('')
-                }}
-              >
-                <input
-                  type="text"
-                  value={newPlaylistName}
-                  onChange={(e) => setNewPlaylistName(e.target.value)}
-                  placeholder="New playlist name"
-                  className="bg-white/[0.04] border border-white/10 rounded-full px-3 py-1.5 text-xs sm:text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-transparent"
-                />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded-full border border-violet-500/70 text-violet-300 hover:bg-violet-500/10 text-xs sm:text-sm font-medium transition"
-                >
-                  Create
-                </button>
-              </form>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-4 flex-1 overflow-hidden">
-              <div className="sm:w-64 md:w-72 bg-white/[0.02] border border-white/8 rounded-2xl p-3 flex flex-col gap-2 overflow-auto">
-                {playlists.length === 0 ? (
-                  <p className="text-xs text-gray-500">
-                    No playlists yet. Create one to get started.
-                  </p>
-                ) : (
-                  playlists.map((pl) => (
-                    <button
-                      key={pl.id}
-                      type="button"
-                      onClick={() => setSelectedPlaylistId(pl.id)}
-                      className={`w-full text-left px-3 py-2 rounded-xl text-xs sm:text-sm flex items-center justify-between gap-2 transition ${
-                        pl.id === selectedPlaylistId
-                          ? 'bg-white/[0.08] text-white'
-                          : 'hover:bg-white/[0.04] text-gray-200'
-                      }`}
-                    >
-                      <span className="truncate">{pl.name}</span>
-                      <span className="text-[10px] text-gray-400">
-                        {
-                          pl.songIds.filter((id) =>
-                            songs.some((s) => s.id === id),
-                          ).length
-                        }{' '}
-                        tracks
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-
-              <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] p-3 sm:p-4 overflow-auto">
-                {selectedPlaylistId && playlists.length > 0 ? (
-                  <>
-                    <p className="text-xs sm:text-sm text-gray-300 mb-2">
-                      Songs in this playlist
-                    </p>
-                    <div className="space-y-1.5">
-                      {songs.map((song) => {
-                        const playlist = playlists.find(
-                          (pl) => pl.id === selectedPlaylistId,
-                        )
-                        const inPlaylist = playlist?.songIds.includes(song.id)
-                        return (
-                          <div
-                            key={song.id}
-                            className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 bg-white/[0.02] hover:bg-white/[0.06] text-xs sm:text-sm text-gray-200"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const index = songs.findIndex(
-                                  (s) => s.id === song.id,
-                                )
-                                if (index !== -1) handlePlaySongClick(index)
-                              }}
-                              className="flex items-center gap-2 min-w-0"
-                            >
-                              <span className="w-6 h-6 rounded-md bg-white/[0.08] flex items-center justify-center text-[10px] text-gray-300 shrink-0">
-                                {inPlaylist ? '♪' : '＋'}
-                              </span>
-                              <span className="truncate">
-                                {song.title || song.fileName}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPlaylists((prev) =>
-                                  prev.map((pl) =>
-                                    pl.id === selectedPlaylistId
-                                      ? {
-                                          ...pl,
-                                          songIds: inPlaylist
-                                            ? pl.songIds.filter(
-                                                (id) => id !== song.id,
-                                              )
-                                            : [...pl.songIds, song.id],
-                                        }
-                                      : pl,
-                                  ),
-                                )
-                              }}
-                              className="text-[11px] px-2 py-1 rounded-full border border-white/12 hover:border-white/40 text-gray-200"
-                            >
-                              {inPlaylist ? 'Remove' : 'Add'}
-                            </button>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-xs sm:text-sm text-gray-500">
-                    Select a playlist on the left to manage its songs.
+                    ) : (
+                      <button
+                        key={entry.key}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPlaylistId(entry.playlist.id)
+                          setActivePage('playlists')
+                          markRecent('playlist', entry.playlist.id)
+                        }}
+                        className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-3 transition-all duration-200 bg-white/[0.02] hover:bg-white/[0.06] border border-white/10"
+                      >
+                        <div className="w-full aspect-square rounded-xl bg-gradient-to-br from-violet-700/60 to-fuchsia-500/50 flex items-center justify-center text-xs text-white font-semibold tracking-wide">
+                          PLAYLIST
+                        </div>
+                        <p className="text-sm font-medium truncate text-white/95">
+                          {entry.playlist.name}
+                        </p>
+                        <p className="text-[11px] text-gray-400 truncate">
+                          {
+                            entry.playlist.songIds.filter((id) =>
+                              songs.some((s) => s.id === id),
+                            ).length
+                          }{' '}
+                          tracks
+                        </p>
+                      </button>
+                    ),
+                  )}
+                {recentItems.length === 0 && (
+                  <p className="text-xs sm:text-sm text-gray-500 col-span-full">
+                    Nothing here yet. Start playing songs or playlists and
+                    they&apos;ll show up in your Library.
                   </p>
                 )}
               </div>
             </div>
           </section>
+        )}
+
+        {activePage === 'songs' && (
+          <SongsScreen
+            songs={songs}
+            selectedSongIndex={selectedSongIndex}
+            currentTrackIndex={currentTrackIndex}
+            isPlaying={isPlaying}
+            selectedSong={selectedSong}
+            onSelectSong={handleSelectSong}
+            onPlaySongClick={handlePlaySongClick}
+            onGoToUpload={() => setActivePage('upload')}
+            onCoverUpload={handleCoverUpload}
+            onMetadataChange={handleMetadataChange}
+          />
+        )}
+
+        {activePage === 'playlists' && (
+          <PlaylistsScreen
+            songs={songs}
+            playlists={playlists}
+            selectedPlaylistId={selectedPlaylistId}
+            newPlaylistName={newPlaylistName}
+            onChangeNewPlaylistName={setNewPlaylistName}
+            onCreatePlaylist={() => {
+              const name = newPlaylistName.trim()
+              if (!name) return
+              setPlaylists((prev) => [
+                ...prev,
+                { id: crypto.randomUUID(), name, songIds: [] },
+              ])
+              setNewPlaylistName('')
+            }}
+            onSelectPlaylist={setSelectedPlaylistId}
+            onToggleSongInPlaylist={(songId) => {
+              setPlaylists((prev) =>
+                prev.map((pl) =>
+                  pl.id === selectedPlaylistId
+                    ? {
+                        ...pl,
+                        songIds: pl.songIds.includes(songId)
+                          ? pl.songIds.filter((id) => id !== songId)
+                          : [...pl.songIds, songId],
+                      }
+                    : pl,
+                ),
+              )
+            }}
+            onPlaySong={(songId) => {
+              const index = songs.findIndex((s) => s.id === songId)
+              if (index !== -1) handlePlaySongClick(index)
+            }}
+          />
         )}
       </main>
 
@@ -678,8 +558,8 @@ function App() {
 
       {/* Bottom Player Bar */}
       <footer className="relative h-28 sm:h-32 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center px-4 sm:px-8 gap-4 sm:gap-8 w-full shrink-0 overflow-visible">
-        {/* One cat hanging over the top of the bar */}
-        <div className="cat-hanging" aria-hidden>🐈</div>
+        {/* Cat hanging over the top of the bar (image via CSS .cat-hanging) */}
+        <div className="cat-hanging" aria-hidden />
 
         <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-white/[0.08] overflow-hidden shrink-0 flex items-center justify-center text-2xl">
           {nowPlaying?.coverUrl ? (
@@ -701,7 +581,7 @@ function App() {
           </p>
         </div>
 
-        <div className="flex-1 flex flex-col items-center gap-2 min-w-0 max-w-2xl">
+          <div className="flex-1 flex flex-col items-center gap-2 min-w-0 max-w-2xl">
           <div className="flex gap-6 sm:gap-10 items-center">
             <button
               type="button"
@@ -709,7 +589,7 @@ function App() {
               disabled={songs.length === 0}
               className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+              <SkipBack className="w-6 h-6" />
             </button>
             <button
               type="button"
@@ -718,9 +598,9 @@ function App() {
               className="w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               {isPlaying ? (
-                <svg className="w-6 h-6 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                <Pause className="w-6 h-6 ml-0.5" />
               ) : (
-                <svg className="w-6 h-6 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                <Play className="w-6 h-6 ml-0.5" />
               )}
             </button>
             <button
@@ -729,7 +609,7 @@ function App() {
               disabled={songs.length === 0}
               className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zm2-6l5 3.5V8.5L8 12zm9-6v12h2V6h-2z"/></svg>
+              <SkipForward className="w-6 h-6" />
             </button>
           </div>
           <div className="w-full flex items-center gap-3 text-xs sm:text-sm text-gray-500">
@@ -750,8 +630,8 @@ function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-gray-500 shrink-0 mr-2 sm:mr-4">
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        <div className="flex items-center gap-3 text-gray-500 shrink-0 mr-2 sm:mr-4">
+          <Volume2 className="w-5 h-5" />
           <input
             type="range"
             min={0}
@@ -763,76 +643,38 @@ function App() {
           />
         </div>
 
-        {/* Settings toggle (left of logo) */}
+        {/* Settings toggle (left of logo, larger) */}
         <button
           type="button"
           onClick={() => setShowSettings((prev) => !prev)}
-          className="ml-2 flex items-center justify-center w-11 h-11 sm:w-12 sm:h-12 rounded-full border border-white/25 text-gray-300 hover:text-white hover:border-white/60 bg-white/5 shrink-0"
+          className="ml-2 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
         >
-          <svg
-            className="w-5 h-5 sm:w-6 sm:h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.6}
-              d="M10.325 4.317a1 1 0 0 1 .948-.684h1.454a1 1 0 0 1 .948.684l.517 1.597a1 1 0 0 0 .95.69h1.68a1 1 0 0 1 .832 1.555l-.96 1.44a1 1 0 0 0 0 1.11l.96 1.44a1 1 0 0 1-.832 1.555h-1.68a1 1 0 0 0-.95.69l-.517 1.597a1 1 0 0 1-.948.684h-1.454a1 1 0 0 1-.948-.684l-.517-1.597a1 1 0 0 0-.95-.69h-1.68a1 1 0 0 1-.832-1.555l.96-1.44a1 1 0 0 0 0-1.11l-.96-1.44a1 1 0 0 1 .832-1.555h1.68a1 1 0 0 0 .95-.69l.517-1.597z"
-            />
-            <circle cx="12" cy="12" r="2.2" fill="currentColor" />
-          </svg>
+          <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
         </button>
 
-        {/* listenWell: large logo + drop-up menu (majority of bottom right) */}
+        {/* listenWell logo + account button (bottom right) */}
         <div className="ml-3 sm:ml-4 flex-1 min-w-0 max-w-lg flex flex-col items-end justify-center relative h-full min-h-[88px]">
           <button
             type="button"
-            onClick={() => setIsNavOpen((prev) => !prev)}
             className="flex flex-col items-center justify-center w-full h-full min-h-[96px] rounded-2xl bg-white/7 border border-white/12 hover:bg-white/12 hover:border-white/25 transition text-center py-4 px-8 gap-3"
           >
-            <span className="text-4xl sm:text-5xl font-normal tracking-[0.06em] text-white block" style={{ fontFamily: "'Dancing Script', cursive" }}>
-              listenWell
-            </span>
-            <span className="text-sm text-gray-300 block">
-              {isNavOpen ? '▾ menu open' : '▴ open menu'}
-            </span>
-          </button>
-          {isNavOpen && (
-            <div className="absolute bottom-full right-0 mb-2 w-56 rounded-2xl bg-black/95 border border-white/15 shadow-xl backdrop-blur-xl py-3 px-2 z-10 flex flex-col gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setActivePage('upload')
-                  setIsNavOpen(false)
-                }}
-                className="w-full py-3 px-4 rounded-xl text-left text-sm font-medium text-gray-200 hover:bg-white/10 hover:text-white border border-transparent hover:border-white/10 transition"
+            <div className="flex items-center justify-center gap-3 sm:gap-4">
+              <Music2 className="w-7 h-7 sm:w-9 sm:h-9 text-violet-400" />
+              <span
+                className="text-2xl sm:text-3xl font-semibold tracking-[0.18em] uppercase text-white block"
+                style={{ fontFamily: "'Orbitron', system-ui, sans-serif" }}
               >
-                Upload
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActivePage('songs')
-                  setIsNavOpen(false)
-                }}
-                className="w-full py-3 px-4 rounded-xl text-left text-sm font-medium text-gray-200 hover:bg-white/10 hover:text-white border border-transparent hover:border-white/10 transition"
-              >
-                Songs
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActivePage('playlists')
-                  setIsNavOpen(false)
-                }}
-                className="w-full py-3 px-4 rounded-xl text-left text-sm font-medium text-gray-200 hover:bg-white/10 hover:text-white border border-transparent hover:border-white/10 transition"
-              >
-                Playlists
-              </button>
+                listenWell
+              </span>
             </div>
-          )}
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full border border-white/25 bg-white/10 text-xs sm:text-sm text-white/90 hover:bg-white/20 hover:border-white/60 transition"
+            >
+              <UserCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Account</span>
+            </button>
+          </button>
         </div>
       </footer>
     </div>
