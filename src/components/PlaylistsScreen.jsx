@@ -1,4 +1,5 @@
 import React from 'react'
+import { Music2, Plus } from 'lucide-react'
 
 function PlaylistsScreen({
   songs,
@@ -10,6 +11,8 @@ function PlaylistsScreen({
   onSelectPlaylist,
   onToggleSongInPlaylist,
   onPlaySong,
+  onParallaxMove,
+  onParallaxLeave,
 }) {
   const selectedPlaylist =
     playlists.find((pl) => pl.id === selectedPlaylistId) || null
@@ -18,8 +21,10 @@ function PlaylistsScreen({
     <section className="flex-1 flex flex-col overflow-hidden min-w-0 gap-4">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-2">
         <div>
-          <p className="text-base text-gray-300">Playlists</p>
-          <p className="text-xs text-gray-500">
+          <p className="section-title text-base text-gray-300 text-center">
+            Playlists
+          </p>
+          <p className="text-xs text-gray-500 text-center">
             Create playlists from your library and choose what to play.
           </p>
         </div>
@@ -47,7 +52,11 @@ function PlaylistsScreen({
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 flex-1 overflow-hidden">
-        <div className="sm:w-64 md:w-72 bg-white/[0.02] border border-white/8 rounded-2xl p-3 flex flex-col gap-2 overflow-auto">
+        <div
+          className="sm:w-64 md:w-72 bg-white/[0.02] border border-white/8 rounded-2xl p-3 flex flex-col gap-2 overflow-auto glass-card parallax-card"
+          onMouseMove={onParallaxMove}
+          onMouseLeave={onParallaxLeave}
+        >
           {playlists.length === 0 ? (
             <p className="text-xs text-gray-500">
               No playlists yet. Create one to get started.
@@ -78,7 +87,11 @@ function PlaylistsScreen({
           )}
         </div>
 
-        <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] p-3 sm:p-4 overflow-auto">
+        <div
+          className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] p-3 sm:p-4 overflow-auto glass-card parallax-card"
+          onMouseMove={onParallaxMove}
+          onMouseLeave={onParallaxLeave}
+        >
           {selectedPlaylist && playlists.length > 0 ? (
             <>
               <p className="text-xs sm:text-sm text-gray-300 mb-2">
@@ -98,7 +111,11 @@ function PlaylistsScreen({
                         className="flex items-center gap-2 min-w-0"
                       >
                         <span className="w-6 h-6 rounded-md bg-white/[0.08] flex items-center justify-center text-[10px] text-gray-300 shrink-0">
-                          {inPlaylist ? '♪' : '＋'}
+                          {inPlaylist ? (
+                            <Music2 className="w-3.5 h-3.5 text-cyan-300" />
+                          ) : (
+                            <Plus className="w-3.5 h-3.5 text-violet-300" />
+                          )}
                         </span>
                         <span className="truncate">
                           {song.title || song.fileName}
@@ -128,4 +145,3 @@ function PlaylistsScreen({
 }
 
 export default PlaylistsScreen
-
