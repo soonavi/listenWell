@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 * {
@@ -15,4 +16,11 @@ body {
   min-height: 100dvh;
   background: #0c0c0e;
   -webkit-font-smoothing: antialiased;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+}
+
+.section-title {
+  font-family: 'Orbitron', system-ui, sans-serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }

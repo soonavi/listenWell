@@ -4,6 +4,10 @@ import UploadScreen from './components/UploadScreen'
 import SongsScreen from './components/SongsScreen'
 import PlaylistsScreen from './components/PlaylistsScreen'
 import {
+  AnimatePresence,
+  motion,
+} from 'framer-motion'
+import {
   Play,
   Pause,
   SkipBack,
@@ -42,7 +46,19 @@ function App() {
   const audioContextRef = useRef(null)
   const sourceNodeRef = useRef(null)
   const bassFilterRef = useRef(null)
+  const analyserRef = useRef(null)
+  const visualizerDataRef = useRef(null)
+  const visualizerFrameRef = useRef(null)
+  const visualizerCanvasRef = useRef(null)
   const [recentItems, setRecentItems] = useState([]) // {type: 'song'|'playlist', id}
+  const [showLogoSymbol, setShowLogoSymbol] = useState(true)
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setShowLogoSymbol((prev) => !prev)
+    }, 2400)
+    return () => window.clearInterval(interval)
+  }, [])
 
   const markRecent = (type, id) => {
     setRecentItems((prev) => {
@@ -68,13 +84,73 @@ function App() {
     if (!sourceNodeRef.current) {
       const source = ctx.createMediaElementSource(audioEl)
       const bass = ctx.createBiquadFilter()
+      const analyser = ctx.createAnalyser()
       bass.type = 'lowshelf'
       bass.frequency.value = 200
+      analyser.fftSize = 128
       source.connect(bass)
-      bass.connect(ctx.destination)
+      bass.connect(analyser)
+      analyser.connect(ctx.destination)
       sourceNodeRef.current = source
       bassFilterRef.current = bass
+      analyserRef.current = analyser
+      visualizerDataRef.current = new Uint8Array(analyser.frequencyBinCount)
     }
+  }
+
+  const runVisualizerFrame = () => {
+    const canvas = visualizerCanvasRef.current
+    const analyser = analyserRef.current
+    const data = visualizerDataRef.current
+    if (!canvas || !analyser || !data) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+    analyser.getByteFrequencyData(data)
+    ctx.clearRect(0, 0, rect.width, rect.height)
+
+    const bars = 30
+    const gap = 4
+    const barWidth = Math.max(2, (rect.width - gap * (bars - 1)) / bars)
+
+    for (let i = 0; i < bars; i += 1) {
+      const value = data[Math.floor((i / bars) * data.length)] || 0
+      const normalized = value / 255
+      const barHeight = Math.max(3, normalized * rect.height)
+      const x = i * (barWidth + gap)
+      const y = rect.height - barHeight
+      const gradient = ctx.createLinearGradient(0, y, 0, rect.height)
+      gradient.addColorStop(0, 'rgba(34,211,238,0.9)')
+      gradient.addColorStop(1, 'rgba(139,92,246,0.35)')
+      ctx.fillStyle = gradient
+      ctx.fillRect(x, y, barWidth, barHeight)
+    }
+
+    visualizerFrameRef.current = requestAnimationFrame(runVisualizerFrame)
+  }
+
+  const handleParallaxMove = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2
+    const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2
+    event.currentTarget.style.setProperty('--rx', `${-y * 5}deg`)
+    event.currentTarget.style.setProperty('--ry', `${x * 7}deg`)
+    event.currentTarget.style.setProperty('--mx', `${(x + 1) * 50}%`)
+    event.currentTarget.style.setProperty('--my', `${(y + 1) * 50}%`)
+  }
+
+  const handleParallaxLeave = (event) => {
+    event.currentTarget.style.setProperty('--rx', '0deg')
+    event.currentTarget.style.setProperty('--ry', '0deg')
+    event.currentTarget.style.setProperty('--mx', '50%')
+    event.currentTarget.style.setProperty('--my', '50%')
   }
 
   const handleUpload = (e) => {
@@ -136,10 +212,11 @@ function App() {
     if (!audio || currentTrackIndex == null || !currentTrackUrl) return
     audio.src = currentTrackUrl
     audio.volume = volume
+    audio.playbackRate = playbackRate
     setCurrentTime(0)
     setDuration(0)
     if (isPlaying) audio.play().catch(() => setIsPlaying(false))
-  }, [currentTrackIndex, currentTrackUrl])
+  }, [currentTrackIndex, currentTrackUrl, playbackRate, volume, isPlaying])
 
   // Keep volume in sync with audio element
   useEffect(() => {
@@ -166,6 +243,26 @@ function App() {
       }
     }
   }, [eqPreset])
+
+  useEffect(() => {
+    ensureAudioGraph()
+  }, [])
+
+  useEffect(() => {
+    if (isPlaying) {
+      visualizerFrameRef.current = requestAnimationFrame(runVisualizerFrame)
+    } else if (visualizerFrameRef.current) {
+      cancelAnimationFrame(visualizerFrameRef.current)
+      visualizerFrameRef.current = null
+    }
+
+    return () => {
+      if (visualizerFrameRef.current) {
+        cancelAnimationFrame(visualizerFrameRef.current)
+        visualizerFrameRef.current = null
+      }
+    }
+  }, [isPlaying, currentTrackIndex])
 
   const handlePlayPause = () => {
     const audio = audioRef.current
@@ -233,8 +330,17 @@ function App() {
   const selectedSong =
     selectedSongIndex !== null ? songs[selectedSongIndex] : null
 
+  const pageTransition = {
+    initial: { opacity: 0, y: 16, filter: 'blur(8px)' },
+    animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
+    exit: { opacity: 0, y: -12, filter: 'blur(8px)' },
+  }
+
   return (
-    <div className="relative flex flex-col min-h-screen w-full bg-[#0c0c0e] text-gray-100">
+    <div className="relative flex flex-col min-h-screen w-full bg-[#0c0c0e] text-gray-100 overflow-hidden">
+      <div className="aurora aurora-one" aria-hidden />
+      <div className="aurora aurora-two" aria-hidden />
+      <div className="aurora aurora-three" aria-hidden />
       <audio
         ref={audioRef}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
@@ -247,7 +353,7 @@ function App() {
         }}
       />
       {/* Top bar: navigation buttons + context actions */}
-      <header className="shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center justify-center px-4 sm:px-8">
+      <header className="relative z-10 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center justify-center px-4 sm:px-8">
         <nav className="flex items-center justify-center gap-2 sm:gap-3 w-full max-w-4xl">
           {[
             { id: 'library', label: 'Library' },
@@ -259,7 +365,7 @@ function App() {
               key={tab.id}
               type="button"
               onClick={() => setActivePage(tab.id)}
-              className={`px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition border ${
+              className={`magnetic-hover px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition border ${
                 activePage === tab.id
                   ? 'bg-violet-600 border-violet-500 text-white'
                   : 'bg-transparent border-transparent text-gray-300 hover:bg-white/[0.04]'
@@ -272,16 +378,39 @@ function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-hidden px-6 sm:px-8 py-6 flex gap-6 sm:gap-8">
-        {activePage === 'upload' && <UploadScreen onUpload={handleUpload} />}
+      <main className="relative z-10 flex-1 overflow-y-hidden px-6 sm:px-8 py-6 flex gap-6 sm:gap-8">
+        <AnimatePresence mode="wait">
+          {activePage === 'upload' && (
+            <motion.div
+              key="upload"
+              className="flex-1 flex"
+              variants={pageTransition}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            >
+              <UploadScreen onUpload={handleUpload} />
+            </motion.div>
+          )}
 
-        {activePage === 'library' && (
-          <section className="flex-1 flex flex-col overflow-hidden min-w-0">
+          {activePage === 'library' && (
+            <motion.section
+              key="library"
+              className="flex-1 flex flex-col overflow-hidden min-w-0 glass-card parallax-card"
+              onMouseMove={handleParallaxMove}
+              onMouseLeave={handleParallaxLeave}
+              variants={pageTransition}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            >
             <div className="mb-4">
-              <h2 className="text-base sm:text-lg font-semibold text-white">
+              <h2 className="section-title text-base sm:text-lg text-white text-center">
                 Recently played
               </h2>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 text-center">
                 Songs and playlists you&apos;ve listened to most recently.
               </p>
             </div>
@@ -331,7 +460,7 @@ function App() {
                               className="w-full h-full object-cover"
                             />
                           ) : (
-                            <span className="opacity-60">🎵</span>
+                            <Music2 className="w-11 h-11 opacity-60 text-violet-300" />
                           )}
                         </div>
                         <p className="text-sm font-medium truncate text-white/95">
@@ -379,66 +508,95 @@ function App() {
                 )}
               </div>
             </div>
-          </section>
-        )}
+            </motion.section>
+          )}
 
-        {activePage === 'songs' && (
-          <SongsScreen
-            songs={songs}
-            selectedSongIndex={selectedSongIndex}
-            currentTrackIndex={currentTrackIndex}
-            isPlaying={isPlaying}
-            selectedSong={selectedSong}
-            onSelectSong={handleSelectSong}
-            onPlaySongClick={handlePlaySongClick}
-            onGoToUpload={() => setActivePage('upload')}
-            onCoverUpload={handleCoverUpload}
-            onMetadataChange={handleMetadataChange}
-          />
-        )}
+          {activePage === 'songs' && (
+            <motion.div
+              key="songs"
+              className="flex-1 flex"
+              variants={pageTransition}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            >
+              <SongsScreen
+                songs={songs}
+                selectedSongIndex={selectedSongIndex}
+                currentTrackIndex={currentTrackIndex}
+                isPlaying={isPlaying}
+                selectedSong={selectedSong}
+                onSelectSong={handleSelectSong}
+                onPlaySongClick={handlePlaySongClick}
+                onGoToUpload={() => setActivePage('upload')}
+                onCoverUpload={handleCoverUpload}
+                onMetadataChange={handleMetadataChange}
+                onParallaxMove={handleParallaxMove}
+                onParallaxLeave={handleParallaxLeave}
+              />
+            </motion.div>
+          )}
 
-        {activePage === 'playlists' && (
-          <PlaylistsScreen
-            songs={songs}
-            playlists={playlists}
-            selectedPlaylistId={selectedPlaylistId}
-            newPlaylistName={newPlaylistName}
-            onChangeNewPlaylistName={setNewPlaylistName}
-            onCreatePlaylist={() => {
-              const name = newPlaylistName.trim()
-              if (!name) return
-              setPlaylists((prev) => [
-                ...prev,
-                { id: crypto.randomUUID(), name, songIds: [] },
-              ])
-              setNewPlaylistName('')
-            }}
-            onSelectPlaylist={setSelectedPlaylistId}
-            onToggleSongInPlaylist={(songId) => {
-              setPlaylists((prev) =>
-                prev.map((pl) =>
-                  pl.id === selectedPlaylistId
-                    ? {
-                        ...pl,
-                        songIds: pl.songIds.includes(songId)
-                          ? pl.songIds.filter((id) => id !== songId)
-                          : [...pl.songIds, songId],
-                      }
-                    : pl,
-                ),
-              )
-            }}
-            onPlaySong={(songId) => {
-              const index = songs.findIndex((s) => s.id === songId)
-              if (index !== -1) handlePlaySongClick(index)
-            }}
-          />
-        )}
+          {activePage === 'playlists' && (
+            <motion.div
+              key="playlists"
+              className="flex-1 flex"
+              variants={pageTransition}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            >
+              <PlaylistsScreen
+                songs={songs}
+                playlists={playlists}
+                selectedPlaylistId={selectedPlaylistId}
+                newPlaylistName={newPlaylistName}
+                onChangeNewPlaylistName={setNewPlaylistName}
+                onCreatePlaylist={() => {
+                  const name = newPlaylistName.trim()
+                  if (!name) return
+                  setPlaylists((prev) => [
+                    ...prev,
+                    { id: crypto.randomUUID(), name, songIds: [] },
+                  ])
+                  setNewPlaylistName('')
+                }}
+                onSelectPlaylist={setSelectedPlaylistId}
+                onToggleSongInPlaylist={(songId) => {
+                  setPlaylists((prev) =>
+                    prev.map((pl) =>
+                      pl.id === selectedPlaylistId
+                        ? {
+                            ...pl,
+                            songIds: pl.songIds.includes(songId)
+                              ? pl.songIds.filter((id) => id !== songId)
+                              : [...pl.songIds, songId],
+                          }
+                        : pl,
+                    ),
+                  )
+                }}
+                onPlaySong={(songId) => {
+                  const index = songs.findIndex((s) => s.id === songId)
+                  if (index !== -1) handlePlaySongClick(index)
+                }}
+                onParallaxMove={handleParallaxMove}
+                onParallaxLeave={handleParallaxLeave}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Settings Panel */}
       {showSettings && (
-        <div className="absolute bottom-28 right-4 sm:right-8 z-20 w-72 sm:w-80 rounded-2xl bg-black/80 border border-white/10 shadow-xl backdrop-blur-xl p-4 flex flex-col gap-3">
+        <div
+          className="absolute bottom-28 right-4 sm:right-8 z-20 w-72 sm:w-80 rounded-2xl bg-black/80 border border-white/10 shadow-xl backdrop-blur-xl p-4 flex flex-col gap-3 glass-card parallax-card"
+          onMouseMove={handleParallaxMove}
+          onMouseLeave={handleParallaxLeave}
+        >
           <div className="flex items-center justify-between mb-1">
             <div className="flex gap-2 items-center">
               <span className="text-sm font-semibold text-white">Settings</span>
@@ -481,8 +639,8 @@ function App() {
               <div className="flex flex-col gap-1.5">
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Speed</span>
-                  <span className="tabular-nums text-gray-400">
-                    {playbackRate.toFixed(2)}x
+                  <span className="tabular-nums text-cyan-300 font-semibold tracking-wide">
+                    {playbackRate.toFixed(2)}x speed
                   </span>
                 </div>
                 <input
@@ -557,7 +715,7 @@ function App() {
       )}
 
       {/* Bottom Player Bar */}
-      <footer className="relative h-28 sm:h-32 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center px-4 sm:px-8 gap-4 sm:gap-8 w-full shrink-0 overflow-visible">
+      <footer className="relative z-10 h-28 sm:h-32 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center px-4 sm:px-8 gap-4 sm:gap-8 w-full shrink-0 overflow-visible">
         {/* Cat hanging over the top of the bar (image via CSS .cat-hanging) */}
         <div className="cat-hanging" aria-hidden />
 
@@ -569,7 +727,7 @@ function App() {
               className="w-full h-full object-cover"
             />
           ) : (
-            <span className="opacity-70">🎵</span>
+            <Music2 className="w-8 h-8 text-violet-300/80" />
           )}
         </div>
         <div className="w-40 sm:w-52 min-w-0">
@@ -587,7 +745,7 @@ function App() {
               type="button"
               onClick={handlePrev}
               disabled={songs.length === 0}
-              className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipBack className="w-6 h-6" />
             </button>
@@ -595,7 +753,7 @@ function App() {
               type="button"
               onClick={handlePlayPause}
               disabled={songs.length === 0}
-              className="w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className="magnetic-hover glow-pulse w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               {isPlaying ? (
                 <Pause className="w-6 h-6 ml-0.5" />
@@ -607,7 +765,7 @@ function App() {
               type="button"
               onClick={handleNext}
               disabled={songs.length === 0}
-              className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipForward className="w-6 h-6" />
             </button>
@@ -628,6 +786,11 @@ function App() {
               {formatTime(duration)}
             </span>
           </div>
+          <canvas
+            ref={visualizerCanvasRef}
+            className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10"
+            aria-label="Live audio visualizer"
+          />
         </div>
 
         <div className="flex items-center gap-3 text-gray-500 shrink-0 mr-2 sm:mr-4">
@@ -647,7 +810,7 @@ function App() {
         <button
           type="button"
           onClick={() => setShowSettings((prev) => !prev)}
-          className="ml-2 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
+          className="magnetic-hover ml-2 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
         >
           <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
         </button>
@@ -659,7 +822,19 @@ function App() {
             className="flex flex-col items-center justify-center w-full h-full min-h-[96px] rounded-2xl bg-white/7 border border-white/12 hover:bg-white/12 hover:border-white/25 transition text-center py-4 px-8 gap-3"
           >
             <div className="flex items-center justify-center gap-3 sm:gap-4">
-              <Music2 className="w-7 h-7 sm:w-9 sm:h-9 text-violet-400" />
+              <AnimatePresence mode="wait">
+                {showLogoSymbol && (
+                  <motion.div
+                    key="logo-symbol"
+                    initial={{ opacity: 0, scale: 0.7, y: 6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.7, y: -6 }}
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                  >
+                    <Music2 className="w-7 h-7 sm:w-9 sm:h-9 text-violet-400" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <span
                 className="text-2xl sm:text-3xl font-semibold tracking-[0.18em] uppercase text-white block"
                 style={{ fontFamily: "'Orbitron', system-ui, sans-serif" }}
