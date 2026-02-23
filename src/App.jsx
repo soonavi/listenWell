@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import './App.css'
 import UploadScreen from './components/UploadScreen'
 import SongsScreen from './components/SongsScreen'
 import PlaylistsScreen from './components/PlaylistsScreen'
+// eslint-disable-next-line no-unused-vars
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   AnimatePresence,
   motion,
@@ -36,7 +38,6 @@ function App() {
   const [playbackRate, setPlaybackRate] = useState(1)
   const [eqPreset, setEqPreset] = useState('normal') // 'normal' | 'bass' | 'bright'
   const [activePage, setActivePage] = useState('upload') // 'upload' | 'songs' | 'playlists'
-  const [isNavOpen, setIsNavOpen] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState('playback') // 'playback' | 'appearance'
   const [playlists, setPlaylists] = useState([]) // {id, name, songIds[]}
@@ -207,6 +208,7 @@ function App() {
 
   // Load track only when the active track index or its URL changes (not when other metadata changes)
   const currentTrackUrl = songs[currentTrackIndex]?.url ?? null
+  const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || currentTrackIndex == null || !currentTrackUrl) return
@@ -227,8 +229,8 @@ function App() {
   // Keep playback speed in sync with audio element
   useEffect(() => {
     const audio = audioRef.current
-    if (audio) audio.playbackRate = playbackRate
-  }, [playbackRate])
+    if (audio) audio.playbackRate = effectivePlaybackRate
+  }, [effectivePlaybackRate])
 
   // Apply simple bass boost preset via Web Audio API
   useEffect(() => {
@@ -304,8 +306,6 @@ function App() {
     const v = Number(e.target.value)
     setVolume(v)
   }
-
-  const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
 
   const handleMetadataChange = (field, value) => {
     setSongs((prev) =>
@@ -649,7 +649,7 @@ function App() {
                   max={2}
                   step={0.05}
                   value={playbackRate}
-                  onChange={(e) => setPlaybackRate(Number(e.target.value))}
+                  onChange={(e) => handleSpeedChange(Number(e.target.value))}
                   className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
                 />
                 <div className="flex justify-between text-[10px] text-gray-500">
@@ -682,9 +682,24 @@ function App() {
                   ))}
                 </div>
                 <p className="text-[10px] text-gray-500">
-                  Presets are visual-only for now; connect to a Web Audio
-                  pipeline when you&apos;re ready.
+                  Speeds above 1.0x are limited to 1.0x playback for clean
+                  timing. The slider still lets you dial slower speeds.
                 </p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <span className="font-medium">Neural Equalizer</span>
+                <div className="neural-panel rounded-xl p-2 border border-white/10">
+                  <div className="flex items-end gap-1 h-14">
+                    {eqBands.map((band, index) => (
+                      <span
+                        key={`${index}-${eqPreset}`}
+                        className="neural-band"
+                        style={{ height: `${Math.round(band * 100)}%` }}
+                      />
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -692,23 +707,80 @@ function App() {
           {settingsTab === 'appearance' && (
             <div className="flex flex-col gap-3 text-xs text-gray-300">
               <div className="flex flex-col gap-1.5">
-                <span className="font-medium">Theme</span>
-                <p className="text-[11px] text-gray-500">
-                  Dark mode is currently enabled. You can extend this section to
-                  support additional themes and accent colors.
-                </p>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <span className="font-medium">Layout density</span>
-                <div className="flex gap-2">
-                  <button className="flex-1 py-1.5 rounded-full border border-violet-500/60 bg-violet-500/10 text-[11px]">
-                    Comfortable
-                  </button>
-                  <button className="flex-1 py-1.5 rounded-full border border-white/10 text-gray-400 text-[11px]">
-                    Compact
-                  </button>
+                <span className="font-medium">Scene theme</span>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'neon-grid', label: 'Neon Grid' },
+                    { id: 'deep-space', label: 'Deep Space' },
+                    { id: 'hologram', label: 'Hologram' },
+                  ].map((scene) => (
+                    <button
+                      key={scene.id}
+                      type="button"
+                      onClick={() => setTheme(scene.id)}
+                      className={`rounded-lg border px-2 py-1.5 text-[11px] text-center ${
+                        theme === scene.id
+                          ? 'border-cyan-300/70 bg-cyan-500/10 text-cyan-200'
+                          : 'border-white/10 hover:border-white/40 text-gray-300'
+                      }`}
+                    >
+                      {scene.label}
+                    </button>
+                  ))}
                 </div>
               </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="font-medium">Accent source</span>
+                <p className="text-[11px] text-gray-400">
+                  Accent glow auto-matches album art when a cover exists.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="font-medium">Theme intensity</span>
+                <label className="text-[11px] text-gray-400 flex flex-col gap-1">
+                  Aurora strength
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={1.2}
+                    step={0.05}
+                    value={auroraIntensity}
+                    onChange={(e) => setAuroraIntensity(Number(e.target.value))}
+                    className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-200"
+                  />
+                </label>
+                <label className="text-[11px] text-gray-400 flex flex-col gap-1">
+                  Glow softness
+                  <input
+                    type="range"
+                    min={0.25}
+                    max={1.25}
+                    step={0.05}
+                    value={glowSoftness}
+                    onChange={(e) => setGlowSoftness(Number(e.target.value))}
+                    className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-200"
+                  />
+                </label>
+                <label className="text-[11px] text-gray-400 flex flex-col gap-1">
+                  Blur amount
+                  <input
+                    type="range"
+                    min={0.25}
+                    max={1.35}
+                    step={0.05}
+                    value={blurAmount}
+                    onChange={(e) => setBlurAmount(Number(e.target.value))}
+                    className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-200"
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={saveCurrentPreset}
+                className="w-full text-center rounded-lg border border-cyan-300/45 bg-cyan-500/10 text-cyan-200 py-1.5 text-[11px] hover:border-cyan-200/75"
+              >
+                Save current profile preset
+              </button>
             </div>
           )}
         </div>
@@ -808,6 +880,7 @@ function App() {
 
         {/* Settings toggle (left of logo, larger) */}
         <button
+          ref={settingsButtonRef}
           type="button"
           onClick={() => setShowSettings((prev) => !prev)}
           className="magnetic-hover ml-2 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
@@ -817,8 +890,7 @@ function App() {
 
         {/* listenWell logo + account button (bottom right) */}
         <div className="ml-3 sm:ml-4 flex-1 min-w-0 max-w-lg flex flex-col items-end justify-center relative h-full min-h-[88px]">
-          <button
-            type="button"
+          <div
             className="flex flex-col items-center justify-center w-full h-full min-h-[96px] rounded-2xl bg-white/7 border border-white/12 hover:bg-white/12 hover:border-white/25 transition text-center py-4 px-8 gap-3"
           >
             <div className="flex items-center justify-center gap-3 sm:gap-4">
@@ -844,14 +916,85 @@ function App() {
             </div>
             <button
               type="button"
-              className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full border border-white/25 bg-white/10 text-xs sm:text-sm text-white/90 hover:bg-white/20 hover:border-white/60 transition"
+              onClick={() => setShowAccountDrawer(true)}
+              className="inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-1.5 rounded-full border border-white/25 bg-white/10 text-xs sm:text-sm text-white/90 hover:bg-white/20 hover:border-white/60 transition"
             >
-              <UserCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
               <span>Account</span>
+              <UserCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
-          </button>
+          </div>
         </div>
       </footer>
+
+      <AnimatePresence>
+        {showAccountDrawer && (
+          <>
+            <motion.button
+              type="button"
+              onClick={() => setShowAccountDrawer(false)}
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              aria-label="Close account drawer"
+            />
+            <motion.aside
+              initial={{ x: 340, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 340, opacity: 0 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+              className="fixed right-4 top-4 bottom-4 z-50 w-[330px] rounded-2xl border border-white/10 bg-[#0f1117]/90 backdrop-blur-xl p-4 flex flex-col gap-4 glass-card"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="section-title text-sm text-cyan-200">Account</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAccountDrawer(false)}
+                  className="text-xs text-gray-400 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+                <p className="text-sm text-white font-medium">ListenWell Pilot</p>
+                <p className="text-xs text-gray-400 mt-1">Futuristic Listener Profile</p>
+                <p className="text-[11px] text-gray-500 mt-2">Theme: {theme}</p>
+              </div>
+              <div className="flex-1 min-h-0">
+                <p className="text-xs text-cyan-200 mb-2">Saved Presets</p>
+                <div className="space-y-2 max-h-[60vh] overflow-auto pr-1">
+                  {savedPresets.length === 0 ? (
+                    <p className="text-xs text-gray-500">No saved presets yet.</p>
+                  ) : (
+                    savedPresets.map((preset) => (
+                      <div key={preset.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                        <p className="text-xs text-white mb-1">{preset.name}</p>
+                        <p className="text-[10px] text-gray-400 mb-2">{preset.theme} · {preset.eqPreset} · {Math.min(preset.playbackRate, 1).toFixed(2)}x</p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => applyPreset(preset)}
+                            className="flex-1 text-center py-1 rounded-md border border-cyan-300/50 text-cyan-200 text-[11px]"
+                          >
+                            Apply
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSavedPresets((prev) => prev.filter((item) => item.id !== preset.id))}
+                            className="px-2 py-1 rounded-md border border-white/20 text-gray-300 text-[11px]"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
