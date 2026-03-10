@@ -6,10 +6,6 @@ import PlaylistsScreen from './components/PlaylistsScreen'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  AnimatePresence,
-  motion,
-} from 'framer-motion'
-import {
   Play,
   Pause,
   SkipBack,
