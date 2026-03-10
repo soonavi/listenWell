@@ -284,61 +284,6 @@ function App() {
     setBlurAmount(preset.blurAmount)
   }
 
-  const runVisualizerFrame = () => {
-    const canvas = visualizerCanvasRef.current
-    const analyser = analyserRef.current
-    const data = visualizerDataRef.current
-    if (!canvas || !analyser || !data) return
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const dpr = window.devicePixelRatio || 1
-    const rect = canvas.getBoundingClientRect()
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-
-    analyser.getByteFrequencyData(data)
-    ctx.clearRect(0, 0, rect.width, rect.height)
-
-    const bars = 30
-    const gap = 4
-    const barWidth = Math.max(2, (rect.width - gap * (bars - 1)) / bars)
-
-    for (let i = 0; i < bars; i += 1) {
-      const value = data[Math.floor((i / bars) * data.length)] || 0
-      const normalized = value / 255
-      const barHeight = Math.max(3, normalized * rect.height)
-      const x = i * (barWidth + gap)
-      const y = rect.height - barHeight
-      const gradient = ctx.createLinearGradient(0, y, 0, rect.height)
-      gradient.addColorStop(0, 'rgba(34,211,238,0.9)')
-      gradient.addColorStop(1, 'rgba(139,92,246,0.35)')
-      ctx.fillStyle = gradient
-      ctx.fillRect(x, y, barWidth, barHeight)
-    }
-
-    visualizerFrameRef.current = requestAnimationFrame(runVisualizerFrame)
-  }
-
-  const handleParallaxMove = (event) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2
-    const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2
-    event.currentTarget.style.setProperty('--rx', `${-y * 5}deg`)
-    event.currentTarget.style.setProperty('--ry', `${x * 7}deg`)
-    event.currentTarget.style.setProperty('--mx', `${(x + 1) * 50}%`)
-    event.currentTarget.style.setProperty('--my', `${(y + 1) * 50}%`)
-  }
-
-  const handleParallaxLeave = (event) => {
-    event.currentTarget.style.setProperty('--rx', '0deg')
-    event.currentTarget.style.setProperty('--ry', '0deg')
-    event.currentTarget.style.setProperty('--mx', '50%')
-    event.currentTarget.style.setProperty('--my', '50%')
-  }
-
   const handleUpload = (e) => {
     const files = Array.from(e.target.files || [])
     const audioFiles = files.filter((f) => f.type.startsWith('audio/'))
@@ -394,15 +339,16 @@ function App() {
   // Load track only when the active track index or its URL changes (not when other metadata changes)
   const currentTrackUrl = songs[currentTrackIndex]?.url ?? null
   const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
+  const effectivePlaybackRate = clampPlaybackRate(playbackRate)
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || currentTrackIndex == null || !currentTrackUrl) return
     audio.src = currentTrackUrl
     audio.volume = volume
-    audio.playbackRate = clampPlaybackRate(playbackRate)
+    audio.playbackRate = effectivePlaybackRate
     audio.currentTime = 0
     if (isPlaying) audio.play().catch(() => setIsPlaying(false))
-  }, [currentTrackIndex, currentTrackUrl, playbackRate, volume, isPlaying])
+  }, [currentTrackIndex, currentTrackUrl, effectivePlaybackRate, volume, isPlaying])
 
   // Keep volume in sync with audio element
   useEffect(() => {
@@ -413,8 +359,8 @@ function App() {
   // Keep playback speed in sync with audio element
   useEffect(() => {
     const audio = audioRef.current
-    if (audio) audio.playbackRate = clampPlaybackRate(playbackRate)
-  }, [playbackRate])
+    if (audio) audio.playbackRate = effectivePlaybackRate
+  }, [effectivePlaybackRate])
 
   // Apply simple bass boost preset via Web Audio API
   useEffect(() => {
@@ -912,7 +858,7 @@ function App() {
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Speed</span>
                   <span className="tabular-nums text-cyan-300 font-semibold tracking-wide">
-                    {clampPlaybackRate(playbackRate).toFixed(2)}x applied
+                    {effectivePlaybackRate.toFixed(2)}x applied
                   </span>
                 </div>
                 <input
