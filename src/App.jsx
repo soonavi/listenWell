@@ -6,6 +6,10 @@ import PlaylistsScreen from './components/PlaylistsScreen'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  AnimatePresence,
+  motion,
+} from 'framer-motion'
+import {
   Play,
   Pause,
   SkipBack,
@@ -72,36 +76,6 @@ function App() {
   const visualizerCanvasRef = useRef(null)
   const [recentItems, setRecentItems] = useState([]) // {type: 'song'|'playlist', id}
   const [showLogoSymbol, setShowLogoSymbol] = useState(true)
-  const [theme, setTheme] = useState(() => safeGetStorage('listenwell-theme', 'deep-space'))
-  const [accentColor, setAccentColor] = useState('139 92 246')
-  const [shimmer, setShimmer] = useState({ low: 0, mid: 0, high: 0 })
-  const [settingsPosition, setSettingsPosition] = useState(() => {
-    const stored = safeGetStorage('listenwell-settings-position', null)
-    if (!stored) return { x: 0, y: 0 }
-    try {
-      return JSON.parse(stored)
-    } catch {
-      return { x: 0, y: 0 }
-    }
-  })
-  const [isDraggingSettings, setIsDraggingSettings] = useState(false)
-  const [eqBands, setEqBands] = useState(Array.from({ length: 12 }, () => 0.3))
-  const [showAccountDrawer, setShowAccountDrawer] = useState(false)
-  const [savedPresets, setSavedPresets] = useState(() => {
-    const stored = safeGetStorage('listenwell-presets', null)
-    if (!stored) return []
-    try {
-      return JSON.parse(stored)
-    } catch {
-      return []
-    }
-  })
-  const [auroraIntensity, setAuroraIntensity] = useState(() => Number(safeGetStorage('listenwell-aurora-intensity', '0.75')))
-  const [glowSoftness, setGlowSoftness] = useState(() => Number(safeGetStorage('listenwell-glow-softness', '0.65')))
-  const [blurAmount, setBlurAmount] = useState(() => Number(safeGetStorage('listenwell-blur-amount', '0.7')))
-  const settingsButtonRef = useRef(null)
-  const settingsPanelRef = useRef(null)
-  const dragOffsetRef = useRef({ x: 0, y: 0 })
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -148,7 +122,7 @@ function App() {
     }
   }
 
-  function runVisualizerFrame() {
+  const runVisualizerFrame = () => {
     const canvas = visualizerCanvasRef.current
     const analyser = analyserRef.current
     const data = visualizerDataRef.current
@@ -170,10 +144,6 @@ function App() {
     const gap = 4
     const barWidth = Math.max(2, (rect.width - gap * (bars - 1)) / bars)
 
-    let lowSum = 0
-    let midSum = 0
-    let highSum = 0
-
     for (let i = 0; i < bars; i += 1) {
       const value = data[Math.floor((i / bars) * data.length)] || 0
       const normalized = value / 255
@@ -185,18 +155,7 @@ function App() {
       gradient.addColorStop(1, 'rgba(139,92,246,0.35)')
       ctx.fillStyle = gradient
       ctx.fillRect(x, y, barWidth, barHeight)
-
-      if (i < bars / 3) lowSum += normalized
-      else if (i < (bars * 2) / 3) midSum += normalized
-      else highSum += normalized
     }
-
-    const bandSize = bars / 3
-    setShimmer({
-      low: lowSum / bandSize,
-      mid: midSum / bandSize,
-      high: highSum / bandSize,
-    })
 
     visualizerFrameRef.current = requestAnimationFrame(runVisualizerFrame)
   }
@@ -216,72 +175,6 @@ function App() {
     event.currentTarget.style.setProperty('--ry', '0deg')
     event.currentTarget.style.setProperty('--mx', '50%')
     event.currentTarget.style.setProperty('--my', '50%')
-  }
-
-  const handleSpeedChange = (value) => {
-    setPlaybackRate(value)
-  }
-
-  const extractAccentFromCover = useCallback((coverUrl) => {
-    if (!coverUrl || typeof window === 'undefined') return
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      canvas.width = 40
-      canvas.height = 40
-      ctx.drawImage(img, 0, 0, 40, 40)
-      const pixels = ctx.getImageData(0, 0, 40, 40).data
-      let r = 0
-      let g = 0
-      let b = 0
-      let count = 0
-      for (let i = 0; i < pixels.length; i += 16) {
-        r += pixels[i]
-        g += pixels[i + 1]
-        b += pixels[i + 2]
-        count += 1
-      }
-      const rr = Math.round(r / count)
-      const gg = Math.round(g / count)
-      const bb = Math.round(b / count)
-      setAccentColor(`${rr} ${gg} ${bb}`)
-    }
-    img.src = coverUrl
-  }, [])
-
-  const startSettingsDrag = (event) => {
-    if (!settingsPanelRef.current) return
-    const rect = settingsPanelRef.current.getBoundingClientRect()
-    dragOffsetRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top }
-    setIsDraggingSettings(true)
-  }
-
-  const saveCurrentPreset = () => {
-    const preset = {
-      id: crypto.randomUUID(),
-      name: `Preset ${savedPresets.length + 1}`,
-      theme,
-      eqPreset,
-      volume,
-      playbackRate,
-      auroraIntensity,
-      glowSoftness,
-      blurAmount,
-    }
-    setSavedPresets((prev) => [preset, ...prev].slice(0, 10))
-  }
-
-  const applyPreset = (preset) => {
-    setTheme(preset.theme)
-    setEqPreset(preset.eqPreset)
-    setVolume(preset.volume)
-    setPlaybackRate(preset.playbackRate)
-    setAuroraIntensity(preset.auroraIntensity)
-    setGlowSoftness(preset.glowSoftness)
-    setBlurAmount(preset.blurAmount)
   }
 
   const handleUpload = (e) => {
@@ -344,8 +237,9 @@ function App() {
     if (!audio || currentTrackIndex == null || !currentTrackUrl) return
     audio.src = currentTrackUrl
     audio.volume = volume
-    audio.playbackRate = clampPlaybackRate(playbackRate)
-    audio.currentTime = 0
+    audio.playbackRate = playbackRate
+    setCurrentTime(0)
+    setDuration(0)
     if (isPlaying) audio.play().catch(() => setIsPlaying(false))
   }, [currentTrackIndex, currentTrackUrl, playbackRate, volume, isPlaying])
 
@@ -358,8 +252,8 @@ function App() {
   // Keep playback speed in sync with audio element
   useEffect(() => {
     const audio = audioRef.current
-    if (audio) audio.playbackRate = clampPlaybackRate(playbackRate)
-  }, [playbackRate])
+    if (audio) audio.playbackRate = effectivePlaybackRate
+  }, [effectivePlaybackRate])
 
   // Apply simple bass boost preset via Web Audio API
   useEffect(() => {
@@ -380,77 +274,6 @@ function App() {
   }, [])
 
   useEffect(() => {
-    safeSetStorage('listenwell-theme', theme)
-  }, [theme])
-
-  useEffect(() => {
-    safeSetStorage('listenwell-settings-position', JSON.stringify(settingsPosition))
-  }, [settingsPosition])
-
-  useEffect(() => {
-    safeSetStorage('listenwell-presets', JSON.stringify(savedPresets))
-  }, [savedPresets])
-
-  useEffect(() => {
-    safeSetStorage('listenwell-aurora-intensity', String(auroraIntensity))
-  }, [auroraIntensity])
-
-  useEffect(() => {
-    safeSetStorage('listenwell-glow-softness', String(glowSoftness))
-  }, [glowSoftness])
-
-  useEffect(() => {
-    safeSetStorage('listenwell-blur-amount', String(blurAmount))
-  }, [blurAmount])
-
-  useEffect(() => {
-    extractAccentFromCover(nowPlaying?.coverUrl)
-  }, [nowPlaying?.coverUrl, extractAccentFromCover])
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      const base = eqPreset === 'bass' ? 0.68 : eqPreset === 'bright' ? 0.56 : 0.46
-      setEqBands((prev) =>
-        prev.map((_, i) => {
-          const wave = (Math.sin(Date.now() / 260 + i * 0.45) + 1) / 2
-          return Math.max(0.08, Math.min(1, base * 0.4 + wave * base))
-        }),
-      )
-    }, 120)
-    return () => window.clearInterval(id)
-  }, [eqPreset])
-
-  useEffect(() => {
-    if (!showSettings || !settingsButtonRef.current) return
-    if (settingsPosition.x !== 0 || settingsPosition.y !== 0) return
-    const buttonRect = settingsButtonRef.current.getBoundingClientRect()
-    setSettingsPosition({ x: buttonRect.left - 120, y: buttonRect.top - 320 })
-  }, [showSettings, settingsPosition.x, settingsPosition.y])
-
-  useEffect(() => {
-    if (!isDraggingSettings) return
-
-    const onMove = (event) => {
-      const maxX = window.innerWidth - 340
-      const maxY = window.innerHeight - 80
-      setSettingsPosition({
-        x: Math.max(8, Math.min(maxX, event.clientX - dragOffsetRef.current.x)),
-        y: Math.max(8, Math.min(maxY, event.clientY - dragOffsetRef.current.y)),
-      })
-    }
-
-    const onUp = () => setIsDraggingSettings(false)
-
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-  }, [isDraggingSettings])
-
-  useEffect(() => {
     if (isPlaying) {
       visualizerFrameRef.current = requestAnimationFrame(runVisualizerFrame)
     } else if (visualizerFrameRef.current) {
@@ -464,7 +287,7 @@ function App() {
         visualizerFrameRef.current = null
       }
     }
-  }, [isPlaying, currentTrackIndex, runVisualizerFrame])
+  }, [isPlaying, currentTrackIndex])
 
   const handlePlayPause = () => {
     const audio = audioRef.current
@@ -537,19 +360,7 @@ function App() {
   }
 
   return (
-    <div
-      data-theme={theme}
-      className="relative flex flex-col min-h-screen w-full bg-[#0c0c0e] text-gray-100 overflow-hidden"
-      style={{
-        '--accent-rgb': accentColor,
-        '--shimmer-low': shimmer.low,
-        '--shimmer-mid': shimmer.mid,
-        '--shimmer-high': shimmer.high,
-        '--aurora-intensity': auroraIntensity,
-        '--glow-softness': glowSoftness,
-        '--blur-amount': blurAmount,
-      }}
-    >
+    <div className="relative flex flex-col min-h-screen w-full bg-[#0c0c0e] text-gray-100 overflow-hidden">
       <div className="aurora aurora-one" aria-hidden />
       <div className="aurora aurora-two" aria-hidden />
       <div className="aurora aurora-three" aria-hidden />
@@ -805,16 +616,11 @@ function App() {
       {/* Settings Panel */}
       {showSettings && (
         <div
-          ref={settingsPanelRef}
-          className="fixed z-30 w-80 rounded-2xl bg-black/80 border border-white/10 shadow-xl backdrop-blur-xl p-4 flex flex-col gap-3 glass-card parallax-card"
+          className="absolute bottom-28 right-4 sm:right-8 z-20 w-72 sm:w-80 rounded-2xl bg-black/80 border border-white/10 shadow-xl backdrop-blur-xl p-4 flex flex-col gap-3 glass-card parallax-card"
           onMouseMove={handleParallaxMove}
           onMouseLeave={handleParallaxLeave}
-          style={{ left: settingsPosition.x, top: settingsPosition.y }}
         >
-          <div
-            className="flex items-center justify-between mb-1 cursor-grab active:cursor-grabbing select-none"
-            onMouseDown={startSettingsDrag}
-          >
+          <div className="flex items-center justify-between mb-1">
             <div className="flex gap-2 items-center">
               <span className="text-sm font-semibold text-white">Settings</span>
             </div>
@@ -857,7 +663,7 @@ function App() {
                 <div className="flex justify-between items-center">
                   <span className="font-medium">Speed</span>
                   <span className="tabular-nums text-cyan-300 font-semibold tracking-wide">
-                    {clampPlaybackRate(playbackRate).toFixed(2)}x applied
+                    {playbackRate.toFixed(2)}x speed
                   </span>
                 </div>
                 <input
@@ -1111,21 +917,19 @@ function App() {
             className="flex flex-col items-center justify-center w-full h-full min-h-[96px] rounded-2xl bg-white/7 border border-white/12 hover:bg-white/12 hover:border-white/25 transition text-center py-4 px-8 gap-3"
           >
             <div className="flex items-center justify-center gap-3 sm:gap-4">
-              <span className="w-7 h-7 sm:w-9 sm:h-9 inline-flex items-center justify-center">
-                <AnimatePresence mode="wait">
-                  {showLogoSymbol && (
-                    <motion.span
-                      key="logo-symbol"
-                      initial={{ opacity: 0, scale: 0.7, y: 6 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.7, y: -6 }}
-                      transition={{ duration: 0.3, ease: 'easeInOut' }}
-                    >
-                      <Music2 className="w-7 h-7 sm:w-9 sm:h-9 text-violet-400" />
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </span>
+              <AnimatePresence mode="wait">
+                {showLogoSymbol && (
+                  <motion.div
+                    key="logo-symbol"
+                    initial={{ opacity: 0, scale: 0.7, y: 6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.7, y: -6 }}
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                  >
+                    <Music2 className="w-7 h-7 sm:w-9 sm:h-9 text-violet-400" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <span
                 className="text-2xl sm:text-3xl font-semibold tracking-[0.18em] uppercase text-white block"
                 style={{ fontFamily: "'Orbitron', system-ui, sans-serif" }}

@@ -19,8 +19,8 @@ function PlaylistsScreen({
 
   return (
     <section className="flex-1 flex flex-col overflow-hidden min-w-0 gap-4">
-      <div className="flex flex-col items-center gap-3 mb-2">
-        <div className="text-center">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-2">
+        <div>
           <p className="section-title text-base text-gray-300 text-center">
             Playlists
           </p>
