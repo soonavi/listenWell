@@ -27,6 +27,29 @@ function formatTime(seconds) {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+function clampPlaybackRate(rate) {
+  return rate > 1 ? 1 : rate
+}
+
+function safeGetStorage(key, fallback) {
+  try {
+    if (typeof window === 'undefined') return fallback
+    const value = window.localStorage.getItem(key)
+    return value ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+function safeSetStorage(key, value) {
+  try {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(key, value)
+  } catch {
+    // ignore storage failures (private mode / blocked storage)
+  }
+}
+
 function App() {
   const [songs, setSongs] = useState([])
   const [selectedSongIndex, setSelectedSongIndex] = useState(null)
