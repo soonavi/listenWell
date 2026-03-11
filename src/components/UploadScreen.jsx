@@ -1,7 +1,6 @@
 import React from 'react'
 // eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion'
-import { Music2 } from 'lucide-react'
 
 function UploadScreen({ onUpload }) {
   return (
@@ -11,14 +10,6 @@ function UploadScreen({ onUpload }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: 'easeOut' }}
     >
-      <motion.div
-        className="absolute inset-0 flex items-center justify-center pointer-events-none"
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.7, ease: 'easeOut' }}
-      >
-        <Music2 className="w-44 h-44 sm:w-56 sm:h-56 text-violet-300/15 drop-shadow-[0_0_35px_rgba(167,139,250,0.35)]" />
-      </motion.div>
       <motion.div
         className="relative z-10 max-w-md w-full flex flex-col items-center gap-5 sm:gap-6"
         initial={{ opacity: 0, y: 16 }}
