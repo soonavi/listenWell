@@ -12,8 +12,11 @@ import {
   SkipForward,
   Volume2,
   Settings2,
-  UserCircle2,
   Music2,
+  UserCircle2,
+  Info,
+  History,
+  ChevronUp,
 } from 'lucide-react'
 
 function formatTime(seconds) {
@@ -25,6 +28,13 @@ function formatTime(seconds) {
 
 function clampPlaybackRate(rate) {
   return rate > 1 ? 1 : rate
+}
+
+function createSafeId(prefix = 'id') {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`
 }
 
 function safeGetStorage(key, fallback) {
@@ -59,8 +69,7 @@ function App() {
   const [activePage, setActivePage] = useState('upload') // 'upload' | 'songs' | 'playlists'
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState('playback') // 'playback' | 'appearance'
-  const [playlists, setPlaylists] = useState([]) // {id, name, songIds[]}
-  const [newPlaylistName, setNewPlaylistName] = useState('')
+  const [playlists, setPlaylists] = useState([]) // {id, name, description, coverUrl, songIds[]}
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null)
   const audioRef = useRef(null)
   const audioContextRef = useRef(null)
@@ -87,6 +96,10 @@ function App() {
   const [isDraggingSettings, setIsDraggingSettings] = useState(false)
   const [eqBands, setEqBands] = useState(Array.from({ length: 12 }, () => 0.3))
   const [showAccountDrawer, setShowAccountDrawer] = useState(false)
+  const [showLogoMenu, setShowLogoMenu] = useState(false)
+  const [showAboutModal, setShowAboutModal] = useState(false)
+  const [showListeningHistoryModal, setShowListeningHistoryModal] = useState(false)
+  const [listeningHistory, setListeningHistory] = useState([])
   const [savedPresets, setSavedPresets] = useState(() => {
     const stored = safeGetStorage('listenwell-presets', null)
     if (!stored) return []
@@ -102,6 +115,12 @@ function App() {
   const settingsButtonRef = useRef(null)
   const settingsPanelRef = useRef(null)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
+  const logoMenuRef = useRef(null)
+
+  const markSongHistory = useCallback((song) => {
+    if (!song?.id) return
+    setListeningHistory((prev) => [{ id: song.id, title: song.title || song.fileName || 'Untitled' }, ...prev].slice(0, 100))
+  }, [])
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -148,7 +167,7 @@ function App() {
     }
   }
 
-  function runVisualizerFrame() {
+  const runVisualizerFrame = useCallback(() => {
     const canvas = visualizerCanvasRef.current
     const analyser = analyserRef.current
     const data = visualizerDataRef.current
@@ -199,7 +218,7 @@ function App() {
     })
 
     visualizerFrameRef.current = requestAnimationFrame(runVisualizerFrame)
-  }
+  }, [])
 
   const handleParallaxMove = (event) => {
     const rect = event.currentTarget.getBoundingClientRect()
@@ -261,7 +280,7 @@ function App() {
 
   const saveCurrentPreset = () => {
     const preset = {
-      id: crypto.randomUUID(),
+      id: createSafeId('preset'),
       name: `Preset ${savedPresets.length + 1}`,
       theme,
       eqPreset,
@@ -291,7 +310,7 @@ function App() {
     if (audioFiles.length === 0) return
 
     const newSongs = audioFiles.map((f) => ({
-      id: crypto.randomUUID ? crypto.randomUUID() : `${f.name}-${Date.now()}`,
+      id: createSafeId(f.name || 'song'),
       title: f.name.replace(/\.[^/.]+$/, ''),
       fileName: f.name,
       url: URL.createObjectURL(f),
@@ -326,6 +345,7 @@ function App() {
     setCurrentTrackIndex(index)
     setIsPlaying(true)
     markRecent('song', songs[index]?.id)
+    markSongHistory(songs[index])
     // audio src will be set by effect, then play on next tick
     setTimeout(() => {
       if (!audioRef.current) return
@@ -344,11 +364,23 @@ function App() {
     const audio = audioRef.current
     if (!audio || currentTrackIndex == null || !currentTrackUrl) return
     audio.src = currentTrackUrl
-    audio.volume = volume
-    audio.playbackRate = effectivePlaybackRate
     audio.currentTime = 0
     if (isPlaying) audio.play().catch(() => setIsPlaying(false))
-  }, [currentTrackIndex, currentTrackUrl, effectivePlaybackRate, volume, isPlaying])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrackIndex, currentTrackUrl])
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || !currentTrackUrl) return
+    audio.playbackRate = effectivePlaybackRate
+    audio.volume = volume
+    if (isPlaying && audio.paused) {
+      audio.play().catch(() => setIsPlaying(false))
+    }
+    if (!isPlaying && !audio.paused) {
+      audio.pause()
+    }
+  }, [isPlaying, currentTrackUrl, effectivePlaybackRate, volume])
 
   // Keep volume in sync with audio element
   useEffect(() => {
@@ -425,8 +457,21 @@ function App() {
     if (!showSettings || !settingsButtonRef.current) return
     if (settingsPosition.x !== 0 || settingsPosition.y !== 0) return
     const buttonRect = settingsButtonRef.current.getBoundingClientRect()
-    setSettingsPosition({ x: buttonRect.left - 120, y: buttonRect.top - 320 })
+    const targetX = Math.max(8, Math.min(window.innerWidth - 340, buttonRect.left - 120))
+    const targetY = Math.max(8, Math.min(window.innerHeight - 80, buttonRect.top - 320))
+    setSettingsPosition({ x: targetX, y: targetY })
   }, [showSettings, settingsPosition.x, settingsPosition.y])
+
+  useEffect(() => {
+    if (!showLogoMenu) return
+    const onDown = (event) => {
+      if (!logoMenuRef.current?.contains(event.target)) {
+        setShowLogoMenu(false)
+      }
+    }
+    window.addEventListener('mousedown', onDown)
+    return () => window.removeEventListener('mousedown', onDown)
+  }, [showLogoMenu])
 
   useEffect(() => {
     if (!isDraggingSettings) return
@@ -467,6 +512,21 @@ function App() {
     }
   }, [isPlaying, currentTrackIndex, runVisualizerFrame])
 
+  useEffect(() => {
+    if (!isPlaying) return undefined
+    let frameId = null
+    const tick = () => {
+      if (audioRef.current && !audioRef.current.paused) {
+        setCurrentTime(audioRef.current.currentTime)
+      }
+      frameId = requestAnimationFrame(tick)
+    }
+    frameId = requestAnimationFrame(tick)
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId)
+    }
+  }, [isPlaying])
+
   const handlePlayPause = () => {
     const audio = audioRef.current
     if (!audio || currentTrackIndex == null) return
@@ -484,6 +544,8 @@ function App() {
     setCurrentTrackIndex(next)
     setSelectedSongIndex(next)
     setIsPlaying(true)
+    markRecent('song', songs[next]?.id)
+    markSongHistory(songs[next])
   }
 
   const handleNext = () => {
@@ -492,13 +554,14 @@ function App() {
     setCurrentTrackIndex(next)
     setSelectedSongIndex(next)
     setIsPlaying(true)
+    markRecent('song', songs[next]?.id)
+    markSongHistory(songs[next])
   }
 
   const handleSeek = (e) => {
     const audio = audioRef.current
     if (!audio || !duration) return
-    const pct = Number(e.target.value) / 100
-    const t = pct * duration
+    const t = Number(e.target.value)
     audio.currentTime = t
     setCurrentTime(t)
   }
@@ -765,16 +828,28 @@ function App() {
                 songs={songs}
                 playlists={playlists}
                 selectedPlaylistId={selectedPlaylistId}
-                newPlaylistName={newPlaylistName}
-                onChangeNewPlaylistName={setNewPlaylistName}
-                onCreatePlaylist={() => {
-                  const name = newPlaylistName.trim()
-                  if (!name) return
+                onCreatePlaylist={({ name, description, coverUrl }) => {
+                  const trimmedName = name.trim()
+                  if (!trimmedName) return
+                  const id = createSafeId('playlist')
                   setPlaylists((prev) => [
                     ...prev,
-                    { id: crypto.randomUUID(), name, songIds: [] },
+                    {
+                      id,
+                      name: trimmedName,
+                      description: description || '',
+                      coverUrl: coverUrl || null,
+                      songIds: [],
+                    },
                   ])
-                  setNewPlaylistName('')
+                  setSelectedPlaylistId(id)
+                }}
+                onUpdatePlaylist={(playlistId, updates) => {
+                  setPlaylists((prev) =>
+                    prev.map((pl) =>
+                      pl.id === playlistId ? { ...pl, ...updates } : pl,
+                    ),
+                  )
                 }}
                 onSelectPlaylist={setSelectedPlaylistId}
                 onToggleSongInPlaylist={(songId) => {
@@ -1067,8 +1142,10 @@ function App() {
             <input
               type="range"
               min={0}
-              max={100}
-              value={duration ? (currentTime / duration) * 100 : 0}
+              max={duration || 0}
+              step={0.05}
+              value={Math.min(currentTime, duration || 0)}
+              onInput={handleSeek}
               onChange={handleSeek}
               className="flex-1 h-2 rounded-full appearance-none bg-white/25 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
             />
@@ -1089,8 +1166,9 @@ function App() {
             type="range"
             min={0}
             max={1}
-            step={0.05}
+            step={0.01}
             value={volume}
+            onInput={handleVolumeChange}
             onChange={handleVolumeChange}
             className="w-20 sm:w-24 h-2 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
           />
@@ -1107,9 +1185,18 @@ function App() {
         </button>
 
         {/* listenWell logo + account button (bottom right) */}
-        <div className="ml-3 sm:ml-4 flex-1 min-w-0 max-w-lg flex flex-col items-end justify-center relative h-full min-h-[88px]">
+        <div ref={logoMenuRef} className="ml-3 sm:ml-4 flex-1 min-w-0 max-w-lg flex flex-col items-end justify-center relative h-full min-h-[88px]">
           <div
-            className="flex flex-col items-center justify-center w-full h-full min-h-[96px] rounded-2xl bg-white/7 border border-white/12 hover:bg-white/12 hover:border-white/25 transition text-center py-4 px-8 gap-3"
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowLogoMenu((prev) => !prev)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                setShowLogoMenu((prev) => !prev)
+              }
+            }}
+            className="flex flex-col items-center justify-center w-full h-full min-h-[96px] rounded-2xl bg-white/7 border border-white/12 hover:bg-white/12 hover:border-white/25 transition text-center py-4 px-8 gap-3 cursor-pointer"
           >
             <div className="flex items-center justify-center gap-3 sm:gap-4">
               <span className="w-7 h-7 sm:w-9 sm:h-9 inline-flex items-center justify-center">
@@ -1133,18 +1220,63 @@ function App() {
               >
                 listenWell
               </span>
+              <ChevronUp className={`w-4 h-4 text-gray-300 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAccountDrawer(true)}
-              className="inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-1.5 rounded-full border border-white/25 bg-white/10 text-xs sm:text-sm text-white/90 hover:bg-white/20 hover:border-white/60 transition"
-            >
-              <span>Account</span>
-              <UserCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
-            </button>
           </div>
+
+          <AnimatePresence>
+            {showLogoMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className="absolute right-0 bottom-[calc(100%+0.5rem)] w-56 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1 z-30"
+              >
+                <button type="button" onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><UserCircle2 className="w-4 h-4" />Account</button>
+                <button type="button" onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><Info className="w-4 h-4" />About us</button>
+                <button type="button" onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><History className="w-4 h-4" />Listening history</button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </footer>
+
+      <AnimatePresence>
+        {showAboutModal && (
+          <>
+            <motion.button type="button" onClick={() => setShowAboutModal(false)} className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+            <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }} className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(92vw,560px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 shadow-2xl glass-card">
+              <div className="flex items-center justify-between mb-3"><h3 className="text-base font-semibold text-cyan-200">About ListenWell</h3><button type="button" onClick={() => setShowAboutModal(false)} className="text-xs text-gray-400 hover:text-white">Close</button></div>
+              <p className="text-sm text-gray-200 leading-relaxed">ListenWell was designed as a focused music workspace: a place to upload songs, shape metadata, and explore sound with a futuristic interface. The project emphasizes immersive visuals, quick playback controls, and a personal listening experience built by creators who wanted local music management to feel modern and expressive.</p>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showListeningHistoryModal && (
+          <>
+            <motion.button type="button" onClick={() => setShowListeningHistoryModal(false)} className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+            <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }} className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(92vw,520px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 shadow-2xl glass-card">
+              <div className="flex items-center justify-between mb-3"><h3 className="text-base font-semibold text-cyan-200">Listening history</h3><button type="button" onClick={() => setShowListeningHistoryModal(false)} className="text-xs text-gray-400 hover:text-white">Close</button></div>
+              <div className="max-h-[55vh] overflow-auto pr-1">
+                {listeningHistory.length === 0 ? (
+                  <p className="text-sm text-gray-400">No songs listened to yet.</p>
+                ) : (
+                  <ol className="space-y-2">
+                    {listeningHistory.map((entry, index) => (
+                      <li key={`${entry.id}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-gray-200">
+                        {entry.title}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showAccountDrawer && (
