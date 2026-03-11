@@ -3,6 +3,7 @@ import './App.css'
 import UploadScreen from './components/UploadScreen'
 import SongsScreen from './components/SongsScreen'
 import PlaylistsScreen from './components/PlaylistsScreen'
+import PlaylistDetailScreen from './components/PlaylistDetailScreen'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -17,6 +18,8 @@ import {
   Info,
   History,
   ChevronUp,
+  Plus,
+  Heart,
 } from 'lucide-react'
 
 function formatTime(seconds) {
@@ -66,11 +69,15 @@ function App() {
   const [volume, setVolume] = useState(0.75)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [eqPreset, setEqPreset] = useState('normal') // 'normal' | 'bass' | 'bright'
-  const [activePage, setActivePage] = useState('upload') // 'upload' | 'songs' | 'playlists'
+  const [activePage, setActivePage] = useState('upload') // 'upload' | 'songs' | 'playlists' | 'playlist-detail'
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState('playback') // 'playback' | 'appearance'
   const [playlists, setPlaylists] = useState([]) // {id, name, description, coverUrl, songIds[]}
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null)
+  const [songFilter, setSongFilter] = useState('all') // all | loved
+  const [songSortBy, setSongSortBy] = useState('default') // default | title | artist
+  const [lovedSongIds, setLovedSongIds] = useState([])
+  const [showNowPlayingAddMenu, setShowNowPlayingAddMenu] = useState(false)
   const audioRef = useRef(null)
   const audioContextRef = useRef(null)
   const sourceNodeRef = useRef(null)
@@ -116,6 +123,7 @@ function App() {
   const settingsPanelRef = useRef(null)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const logoMenuRef = useRef(null)
+  const nowPlayingMenuRef = useRef(null)
 
   const markSongHistory = useCallback((song) => {
     if (!song?.id) return
@@ -241,6 +249,26 @@ function App() {
     setPlaybackRate(value)
   }
 
+  const toggleLovedSong = (songId) => {
+    setLovedSongIds((prev) => (prev.includes(songId) ? prev.filter((id) => id !== songId) : [songId, ...prev]))
+  }
+
+  const createPlaylistWithSong = (songId) => {
+    const id = createSafeId('playlist')
+    setPlaylists((prev) => [
+      ...prev,
+      {
+        id,
+        name: `Playlist ${prev.length + 1}`,
+        description: '',
+        coverUrl: null,
+        songIds: [songId],
+      },
+    ])
+    setSelectedPlaylistId(id)
+    setActivePage('playlist-detail')
+  }
+
   const extractAccentFromCover = useCallback((coverUrl) => {
     if (!coverUrl || typeof window === 'undefined') return
     const img = new Image()
@@ -321,10 +349,15 @@ function App() {
     }))
 
     setSongs((prev) => [...prev, ...newSongs])
+    setActivePage('songs')
     if (selectedSongIndex === null) {
       setSelectedSongIndex(0)
       setCurrentTrackIndex(0)
-      setActivePage('songs')
+    }
+
+    if (e?.target) {
+      // allow selecting the same file again in subsequent uploads
+      e.target.value = ''
     }
   }
 
@@ -455,11 +488,16 @@ function App() {
 
   useEffect(() => {
     if (!showSettings || !settingsButtonRef.current) return
-    if (settingsPosition.x !== 0 || settingsPosition.y !== 0) return
     const buttonRect = settingsButtonRef.current.getBoundingClientRect()
-    const targetX = Math.max(8, Math.min(window.innerWidth - 340, buttonRect.left - 120))
-    const targetY = Math.max(8, Math.min(window.innerHeight - 80, buttonRect.top - 320))
-    setSettingsPosition({ x: targetX, y: targetY })
+    const fallbackX = buttonRect.left - 120
+    const fallbackY = buttonRect.top - 320
+    const baseX = settingsPosition.x === 0 && settingsPosition.y === 0 ? fallbackX : settingsPosition.x
+    const baseY = settingsPosition.x === 0 && settingsPosition.y === 0 ? fallbackY : settingsPosition.y
+    const targetX = Math.max(8, Math.min(window.innerWidth - 340, baseX))
+    const targetY = Math.max(8, Math.min(window.innerHeight - 80, baseY))
+    if (targetX !== settingsPosition.x || targetY !== settingsPosition.y) {
+      setSettingsPosition({ x: targetX, y: targetY })
+    }
   }, [showSettings, settingsPosition.x, settingsPosition.y])
 
   useEffect(() => {
@@ -472,6 +510,17 @@ function App() {
     window.addEventListener('mousedown', onDown)
     return () => window.removeEventListener('mousedown', onDown)
   }, [showLogoMenu])
+
+  useEffect(() => {
+    if (!showNowPlayingAddMenu) return
+    const onDown = (event) => {
+      if (!nowPlayingMenuRef.current?.contains(event.target)) {
+        setShowNowPlayingAddMenu(false)
+      }
+    }
+    window.addEventListener('mousedown', onDown)
+    return () => window.removeEventListener('mousedown', onDown)
+  }, [showNowPlayingAddMenu])
 
   useEffect(() => {
     if (!isDraggingSettings) return
@@ -640,9 +689,9 @@ function App() {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActivePage(tab.id)}
-              className={`magnetic-hover px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition border ${
-                activePage === tab.id
+                onClick={() => setActivePage(tab.id)}
+                className={`magnetic-hover px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition border ${
+                activePage === tab.id || (tab.id === 'playlists' && activePage === 'playlist-detail')
                   ? 'bg-violet-600 border-violet-500 text-white'
                   : 'bg-transparent border-transparent text-gray-300 hover:bg-white/[0.04]'
               }`}
@@ -803,9 +852,29 @@ function App() {
                 currentTrackIndex={currentTrackIndex}
                 isPlaying={isPlaying}
                 selectedSong={selectedSong}
+                songFilter={songFilter}
+                sortBy={songSortBy}
+                lovedSongIds={lovedSongIds}
+                onChangeSongFilter={setSongFilter}
+                onChangeSortBy={setSongSortBy}
+                onToggleLoved={toggleLovedSong}
+                onAddSongQuick={(songId) => {
+                  if (selectedPlaylistId) {
+                    setPlaylists((prev) =>
+                      prev.map((pl) =>
+                        pl.id === selectedPlaylistId && !pl.songIds.includes(songId)
+                          ? { ...pl, songIds: [...pl.songIds, songId] }
+                          : pl,
+                      ),
+                    )
+                  } else {
+                    createPlaylistWithSong(songId)
+                  }
+                }}
                 onSelectSong={handleSelectSong}
                 onPlaySongClick={handlePlaySongClick}
                 onGoToUpload={() => setActivePage('upload')}
+                onUploadMore={handleUpload}
                 onCoverUpload={handleCoverUpload}
                 onMetadataChange={handleMetadataChange}
                 onParallaxMove={handleParallaxMove}
@@ -825,7 +894,6 @@ function App() {
               transition={{ duration: 0.35, ease: 'easeOut' }}
             >
               <PlaylistsScreen
-                songs={songs}
                 playlists={playlists}
                 selectedPlaylistId={selectedPlaylistId}
                 onCreatePlaylist={({ name, description, coverUrl }) => {
@@ -851,7 +919,10 @@ function App() {
                     ),
                   )
                 }}
-                onSelectPlaylist={setSelectedPlaylistId}
+                onSelectPlaylist={(id) => {
+                  setSelectedPlaylistId(id)
+                  setActivePage('playlist-detail')
+                }}
                 onToggleSongInPlaylist={(songId) => {
                   setPlaylists((prev) =>
                     prev.map((pl) =>
@@ -870,8 +941,49 @@ function App() {
                   const index = songs.findIndex((s) => s.id === songId)
                   if (index !== -1) handlePlaySongClick(index)
                 }}
-                onParallaxMove={handleParallaxMove}
-                onParallaxLeave={handleParallaxLeave}
+              />
+            </motion.div>
+          )}
+
+          {activePage === 'playlist-detail' && (
+            <motion.div
+              key="playlist-detail"
+              className="flex-1 flex"
+              variants={pageTransition}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            >
+              <PlaylistDetailScreen
+                playlist={playlists.find((pl) => pl.id === selectedPlaylistId) || null}
+                songs={songs}
+                onBack={() => setActivePage('playlists')}
+                onPlaySong={(songId) => {
+                  const index = songs.findIndex((s) => s.id === songId)
+                  if (index !== -1) handlePlaySongClick(index)
+                }}
+                onToggleSongInPlaylist={(songId) => {
+                  setPlaylists((prev) =>
+                    prev.map((pl) =>
+                      pl.id === selectedPlaylistId
+                        ? {
+                            ...pl,
+                            songIds: pl.songIds.includes(songId)
+                              ? pl.songIds.filter((id) => id !== songId)
+                              : [...pl.songIds, songId],
+                          }
+                        : pl,
+                    ),
+                  )
+                }}
+                onUpdatePlaylist={(playlistId, updates) => {
+                  setPlaylists((prev) =>
+                    prev.map((pl) =>
+                      pl.id === playlistId ? { ...pl, ...updates } : pl,
+                    ),
+                  )
+                }}
               />
             </motion.div>
           )}
@@ -1095,13 +1207,31 @@ function App() {
             <Music2 className="w-8 h-8 text-violet-300/80" />
           )}
         </div>
-        <div className="w-40 sm:w-52 min-w-0">
-          <p className="text-sm sm:text-base font-semibold truncate text-white/95">
-            {nowPlaying ? nowPlaying.title || nowPlaying.fileName : 'No song selected'}
-          </p>
+        <div ref={nowPlayingMenuRef} className="w-40 sm:w-52 min-w-0 relative">
+          <div className="flex items-center gap-2">
+            <p className="text-sm sm:text-base font-semibold truncate text-white/95 flex-1">
+              {nowPlaying ? nowPlaying.title || nowPlaying.fileName : 'No song selected'}
+            </p>
+            {nowPlaying && (
+              <button type="button" onClick={() => setShowNowPlayingAddMenu((prev) => !prev)} className="w-5 h-5 rounded-full border border-white/30 inline-flex items-center justify-center text-gray-200 hover:border-white/70">
+                <Plus className="w-3 h-3" />
+              </button>
+            )}
+          </div>
           <p className="text-xs sm:text-sm text-gray-500 truncate">
             {nowPlaying?.artist || (nowPlaying ? 'Unknown artist' : '—')}
           </p>
+          {showNowPlayingAddMenu && nowPlaying && (
+            <div className="absolute z-30 right-0 top-[calc(100%+0.35rem)] w-52 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1">
+              <button type="button" onClick={() => { toggleLovedSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><Heart className="w-4 h-4" />{lovedSongIds.includes(nowPlaying.id) ? 'Unlove song' : 'Love song'}</button>
+              {playlists.map((pl) => (
+                <button key={pl.id} type="button" onClick={() => { setPlaylists((prev) => prev.map((item) => item.id === pl.id && !item.songIds.includes(nowPlaying.id) ? { ...item, songIds: [...item.songIds, nowPlaying.id] } : item)); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-xs text-gray-300">
+                  Add to {pl.name}
+                </button>
+              ))}
+              <button type="button" onClick={() => { createPlaylistWithSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-xs text-cyan-200">Create playlist & add</button>
+            </div>
+          )}
         </div>
 
           <div className="flex-1 flex flex-col items-center gap-2 min-w-0 max-w-2xl">
@@ -1233,9 +1363,9 @@ function App() {
                 transition={{ duration: 0.2, ease: 'easeOut' }}
                 className="absolute right-0 bottom-[calc(100%+0.5rem)] w-56 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1 z-30"
               >
-                <button type="button" onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><UserCircle2 className="w-4 h-4" />Account</button>
-                <button type="button" onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><Info className="w-4 h-4" />About us</button>
-                <button type="button" onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><History className="w-4 h-4" />Listening history</button>
+                <button type="button" onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><UserCircle2 className="w-4 h-4 shrink-0" /><span>Account</span></button>
+                <button type="button" onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><Info className="w-4 h-4 shrink-0" /><span>About us</span></button>
+                <button type="button" onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><History className="w-4 h-4 shrink-0" /><span>Listening history</span></button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1248,7 +1378,11 @@ function App() {
             <motion.button type="button" onClick={() => setShowAboutModal(false)} className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
             <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }} className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(92vw,560px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 shadow-2xl glass-card">
               <div className="flex items-center justify-between mb-3"><h3 className="text-base font-semibold text-cyan-200">About ListenWell</h3><button type="button" onClick={() => setShowAboutModal(false)} className="text-xs text-gray-400 hover:text-white">Close</button></div>
-              <p className="text-sm text-gray-200 leading-relaxed">ListenWell was designed as a focused music workspace: a place to upload songs, shape metadata, and explore sound with a futuristic interface. The project emphasizes immersive visuals, quick playback controls, and a personal listening experience built by creators who wanted local music management to feel modern and expressive.</p>
+              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-line">ListenWell was built out of a simple frustration — why pay a monthly fee just to listen to music you already have? We're a small team of students who believed your music should be yours, fully and without conditions.
+No algorithms deciding what you hear next. No subscriptions. No data harvesting. Just your library, the way you want it.
+We built this because we use it. And we hope you do too.
+
+-- Ben Krause, Emanuel Shilaku </p>
             </motion.div>
           </>
         )}
