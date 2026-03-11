@@ -100,13 +100,7 @@ button {
 }
 
 .parallax-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(circle at var(--mx) var(--my), rgb(var(--accent-rgb) / 0.2), transparent 55%);
-  pointer-events: none;
-  opacity: 0.45;
+  content: none;
 }
 
 .magnetic-hover {
