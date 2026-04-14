@@ -234,6 +234,24 @@ textarea:focus-visible {
   color-scheme: dark;
 }
 
+/* Native <select> on Windows often ignores translucent backgrounds — use solid dark fill */
+select.song-toolbar-select {
+  background-color: #12141a;
+  color: rgb(229 231 235);
+  border-color: rgb(255 255 255 / 0.18);
+}
+
+select.song-toolbar-select:focus-visible {
+  background-color: #12141a;
+}
+
+[data-theme='light'] select.song-toolbar-select {
+  background-color: rgb(243 244 246);
+  color: rgb(17 24 39);
+  border-color: rgb(148 163 184 / 0.55);
+  color-scheme: light;
+}
+
 .ui-input {
   border: 1px solid rgb(255 255 255 / 0.12);
   background: rgb(255 255 255 / 0.05);

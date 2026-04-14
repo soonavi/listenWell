@@ -15,13 +15,13 @@ function PlaylistsScreen({ playlists, onCreatePlaylist, onSelectPlaylist }) {
 
   return (
     <section className="flex-1 flex flex-col overflow-hidden min-w-0 gap-4 relative">
-      <div className="flex items-center justify-center gap-3 mb-1">
-        <p className="section-title text-base text-gray-300 text-center">Playlists</p>
+      <div className="mb-1 flex flex-nowrap items-center justify-center gap-3">
+        <p className="section-title shrink-0 whitespace-nowrap text-base text-gray-300 text-center">Playlists</p>
         <button
           type="button"
           aria-label="Create playlist"
           onClick={() => setShowCreatePopup(true)}
-          className="ui-btn-primary w-8 h-8 rounded-full flex items-center justify-center"
+          className="ui-btn-primary shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
         >
           <Plus className="w-4 h-4" />
         </button>
@@ -73,9 +73,9 @@ function PlaylistsScreen({ playlists, onCreatePlaylist, onSelectPlaylist }) {
             </div>
             <input type="text" value={playlistName} onChange={(e) => setPlaylistName(e.target.value)} placeholder="Playlist name" className="ui-input rounded-lg px-3 py-2 text-sm" />
             <textarea rows={3} value={playlistDescription} onChange={(e) => setPlaylistDescription(e.target.value)} placeholder="Playlist description" className="ui-input rounded-lg px-3 py-2 text-sm resize-none" />
-            <label className="text-xs text-gray-300 inline-flex items-center gap-2 cursor-pointer">
-              <ImagePlus className="w-4 h-4 text-violet-300" />
-              {playlistCoverUrl ? 'Cover selected' : 'Add cover photo'}
+            <label className="text-xs text-gray-300 inline-flex cursor-pointer flex-nowrap items-center gap-2 whitespace-nowrap">
+              <ImagePlus className="w-4 h-4 shrink-0 text-violet-300" />
+              <span className="truncate">{playlistCoverUrl ? 'Cover selected' : 'Add cover photo'}</span>
               <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; setPlaylistCoverUrl(URL.createObjectURL(file)) }} />
             </label>
             <button type="submit" className="ui-btn-primary px-3 py-2 text-sm font-medium text-center">Create playlist</button>

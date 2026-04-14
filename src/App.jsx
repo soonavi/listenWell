@@ -251,8 +251,8 @@ function App() {
     const rect = event.currentTarget.getBoundingClientRect()
     const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2
     const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2
-    event.currentTarget.style.setProperty('--rx', `${-y * 5}deg`)
-    event.currentTarget.style.setProperty('--ry', `${x * 7}deg`)
+    event.currentTarget.style.setProperty('--rx', `${-y * 3.5}deg`)
+    event.currentTarget.style.setProperty('--ry', `${x * 4.9}deg`)
     event.currentTarget.style.setProperty('--mx', `${(x + 1) * 50}%`)
     event.currentTarget.style.setProperty('--my', `${(y + 1) * 50}%`)
   }
@@ -505,31 +505,28 @@ function App() {
     return () => window.clearInterval(id)
   }, [eqPreset])
 
-  useEffect(() => {
-    if (!showSettings || !settingsButtonRef.current) return
-    const buttonRect = settingsButtonRef.current.getBoundingClientRect()
-    const fallbackX = buttonRect.left - 120
-    const fallbackY = buttonRect.top - 320
-    const baseX = settingsPosition.x === 0 && settingsPosition.y === 0 ? fallbackX : settingsPosition.x
-    const baseY = settingsPosition.x === 0 && settingsPosition.y === 0 ? fallbackY : settingsPosition.y
-    const targetX = Math.max(8, Math.min(window.innerWidth - 340, baseX))
-    const targetY = Math.max(8, Math.min(window.innerHeight - 80, baseY))
-    if (targetX !== settingsPosition.x || targetY !== settingsPosition.y) {
-      setSettingsPosition({ x: targetX, y: targetY })
-    }
-  }, [showSettings, settingsPosition.x, settingsPosition.y])
+  const SETTINGS_PANEL_W = 320
+  const SETTINGS_PANEL_H = 440
 
-  const toggleSettingsPanel = () => {
-    if (!showSettings && settingsButtonRef.current) {
-      const buttonRect = settingsButtonRef.current.getBoundingClientRect()
-      const fallbackX = buttonRect.left - 120
-      const fallbackY = buttonRect.top - 320
-      const targetX = Math.max(8, Math.min(window.innerWidth - 340, fallbackX))
-      const targetY = Math.max(8, Math.min(window.innerHeight - 80, fallbackY))
-      setSettingsPosition({ x: targetX, y: targetY })
+  const clampSettingsPosition = (x, y) => ({
+    x: Math.max(8, Math.min(window.innerWidth - SETTINGS_PANEL_W - 8, x)),
+    y: Math.max(8, Math.min(window.innerHeight - SETTINGS_PANEL_H - 8, y)),
+  })
+
+  const openSettingsPanel = () => {
+    let nextX = settingsPosition.x
+    let nextY = settingsPosition.y
+    if (nextX === 0 && nextY === 0 && settingsButtonRef.current) {
+      const br = settingsButtonRef.current.getBoundingClientRect()
+      nextX = br.left - 120
+      nextY = br.top - SETTINGS_PANEL_H - 16
     }
-    setShowSettings((prev) => !prev)
+    const clamped = clampSettingsPosition(nextX, nextY)
+    setSettingsPosition(clamped)
+    setShowSettings(true)
   }
+
+  const closeSettingsPanel = () => setShowSettings(false)
 
   useEffect(() => {
     if (!showLogoMenu) return
@@ -557,8 +554,8 @@ function App() {
     if (!isDraggingSettings) return
 
     const onMove = (event) => {
-      const maxX = window.innerWidth - 340
-      const maxY = window.innerHeight - 80
+      const maxX = window.innerWidth - SETTINGS_PANEL_W - 8
+      const maxY = window.innerHeight - SETTINGS_PANEL_H - 8
       setSettingsPosition({
         x: Math.max(8, Math.min(maxX, event.clientX - dragOffsetRef.current.x)),
         y: Math.max(8, Math.min(maxY, event.clientY - dragOffsetRef.current.y)),
@@ -1025,9 +1022,7 @@ function App() {
       {showSettings && (
         <div
           ref={settingsPanelRef}
-          className="fixed z-30 w-80 rounded-2xl bg-black/80 border border-white/10 shadow-xl backdrop-blur-xl p-4 flex flex-col gap-3 glass-card parallax-card"
-          onMouseMove={handleParallaxMove}
-          onMouseLeave={handleParallaxLeave}
+          className="fixed z-[100] w-80 rounded-2xl bg-black/80 border border-white/10 shadow-xl backdrop-blur-xl p-4 flex flex-col gap-3 glass-card"
           style={{ left: settingsPosition.x, top: settingsPosition.y }}
         >
           <div
@@ -1039,7 +1034,7 @@ function App() {
             </div>
             <button
               type="button"
-              onClick={() => setShowSettings(false)}
+              onClick={closeSettingsPanel}
               className="text-gray-500 hover:text-white text-xs"
             >
               Close
@@ -1254,14 +1249,14 @@ function App() {
             {nowPlaying?.artist || (nowPlaying ? 'Unknown artist' : '—')}
           </p>
           {showNowPlayingAddMenu && nowPlaying && (
-            <div className="absolute z-30 right-0 top-[calc(100%+0.35rem)] w-52 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1">
-              <button type="button" onClick={() => { toggleLovedSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2"><Heart className="w-4 h-4" />{lovedSongIds.includes(nowPlaying.id) ? 'Unlove song' : 'Love song'}</button>
+            <div className="absolute z-30 right-0 bottom-[calc(100%+0.35rem)] w-52 max-h-[min(50vh,280px)] overflow-y-auto rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1">
+              <button type="button" onClick={() => { toggleLovedSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex flex-nowrap items-center gap-2 whitespace-nowrap"><Heart className="w-4 h-4 shrink-0" /><span className="truncate">{lovedSongIds.includes(nowPlaying.id) ? 'Unlove song' : 'Love song'}</span></button>
               {playlists.map((pl) => (
-                <button key={pl.id} type="button" onClick={() => { setPlaylists((prev) => prev.map((item) => item.id === pl.id && !item.songIds.includes(nowPlaying.id) ? { ...item, songIds: [...item.songIds, nowPlaying.id] } : item)); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-xs text-gray-300">
+                <button key={pl.id} type="button" onClick={() => { setPlaylists((prev) => prev.map((item) => item.id === pl.id && !item.songIds.includes(nowPlaying.id) ? { ...item, songIds: [...item.songIds, nowPlaying.id] } : item)); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-xs text-gray-300 whitespace-nowrap truncate">
                   Add to {pl.name}
                 </button>
               ))}
-              <button type="button" onClick={() => { createPlaylistWithSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-xs text-cyan-200">Create playlist & add</button>
+              <button type="button" onClick={() => { createPlaylistWithSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-xs text-cyan-200 whitespace-nowrap">Create playlist & add</button>
             </div>
           )}
         </div>
@@ -1340,7 +1335,7 @@ function App() {
         <button
           ref={settingsButtonRef}
           type="button"
-          onClick={toggleSettingsPanel}
+          onClick={() => (showSettings ? closeSettingsPanel() : openSettingsPanel())}
           className="magnetic-hover ml-2 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
         >
           <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
@@ -1395,9 +1390,9 @@ function App() {
                 transition={{ duration: 0.2, ease: 'easeOut' }}
                 className="absolute right-0 bottom-[calc(100%+0.5rem)] w-56 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1 z-30"
               >
-                <button type="button" onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex items-center justify-start gap-2.5 leading-none"><UserCircle2 className="w-4 h-4 shrink-0" /><span className="leading-none">Account</span></button>
-                <button type="button" onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex items-center justify-start gap-2.5 leading-none"><Info className="w-4 h-4 shrink-0" /><span className="leading-none">About us</span></button>
-                <button type="button" onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex items-center justify-start gap-2.5 leading-none"><History className="w-4 h-4 shrink-0" /><span className="leading-none">Listening history</span></button>
+                <button type="button" onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex flex-nowrap items-center gap-2.5 whitespace-nowrap"><UserCircle2 className="w-4 h-4 shrink-0" /><span className="truncate">Account</span></button>
+                <button type="button" onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex flex-nowrap items-center gap-2.5 whitespace-nowrap"><Info className="w-4 h-4 shrink-0" /><span className="truncate">About us</span></button>
+                <button type="button" onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex flex-nowrap items-center gap-2.5 whitespace-nowrap"><History className="w-4 h-4 shrink-0" /><span className="truncate">Listening history</span></button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1410,11 +1405,8 @@ function App() {
             <motion.button type="button" onClick={() => setShowAboutModal(false)} className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
             <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }} className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(92vw,560px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 shadow-2xl glass-card">
               <div className="flex items-center justify-between mb-3"><h3 className="text-base font-semibold text-cyan-200">About ListenWell</h3><button type="button" onClick={() => setShowAboutModal(false)} className="text-xs text-gray-400 hover:text-white">Close</button></div>
-              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-line">ListenWell was built out of a simple frustration — why pay a monthly fee just to listen to music you already have? I'm a student who believes your music should be yours, fully and without conditions.
-No algorithms deciding what you hear next. No subscriptions. No data harvesting. Just your library, the way you want it.
-I built this because I use it, and I hope you do too.
-
--- Ben Krause </p>
+              <p className="text-sm text-gray-200 leading-relaxed">ListenWell was built out of a simple frustration — why pay a monthly fee just to listen to music you already have? I&apos;m a student who believes your music should be yours, fully and without conditions. No algorithms deciding what you hear next. No subscriptions. No data harvesting. Just your library, the way you want it. I built this because I use it, and I hope you do too.</p>
+              <p className="text-sm text-gray-400 mt-3">— Ben Krause</p>
             </motion.div>
           </>
         )}
