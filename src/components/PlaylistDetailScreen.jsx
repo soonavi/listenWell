@@ -16,7 +16,7 @@ function PlaylistDetailScreen({ playlist, songs, onBack, onPlaySong, onToggleSon
   return (
     <section className="flex-1 flex flex-col gap-4 overflow-hidden min-w-0">
       <div className="flex items-center gap-3">
-        <button type="button" onClick={onBack} className="px-3 py-1.5 rounded-full border border-white/20 text-xs text-gray-200 hover:border-white/50 inline-flex items-center gap-1">
+        <button type="button" onClick={onBack} className="ui-btn-secondary px-3 py-1.5 rounded-full text-xs inline-flex items-center gap-1">
           <ArrowLeft className="w-3.5 h-3.5" /> Back
         </button>
         <h2 className="text-lg font-semibold text-white truncate">{playlist.name}</h2>
@@ -29,7 +29,7 @@ function PlaylistDetailScreen({ playlist, songs, onBack, onPlaySong, onToggleSon
           </div>
           <p className="text-sm font-medium text-white">{playlist.name}</p>
           {playlist.description ? <p className="text-xs text-gray-400 mt-1">{playlist.description}</p> : null}
-          <label className="mt-3 text-[11px] px-2 py-1 rounded-full border border-white/15 hover:border-white/40 text-gray-200 inline-flex items-center gap-1 cursor-pointer">
+          <label className="ui-btn-secondary mt-3 text-[11px] px-2 py-1 rounded-full inline-flex items-center gap-1 cursor-pointer">
             <ImagePlus className="w-3.5 h-3.5" /> Cover
             <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; onUpdatePlaylist(playlist.id, { coverUrl: URL.createObjectURL(file) }) }} />
           </label>
@@ -45,7 +45,7 @@ function PlaylistDetailScreen({ playlist, songs, onBack, onPlaySong, onToggleSon
                     <span className="w-8 h-8 rounded-md bg-white/[0.08] overflow-hidden flex items-center justify-center shrink-0">{song.coverUrl ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" /> : <Music2 className="w-4 h-4 text-cyan-300" />}</span>
                     <span className="truncate text-sm text-gray-100">{song.title || song.fileName}</span>
                   </button>
-                  <button type="button" onClick={() => onToggleSongInPlaylist(song.id)} className="text-[11px] px-2 py-1 rounded-full border border-white/12">Remove</button>
+                  <button type="button" onClick={() => onToggleSongInPlaylist(song.id)} className="ui-btn-secondary text-[11px] px-2 py-1 rounded-full">Remove</button>
                 </div>
               ))}
             </div>
@@ -60,7 +60,7 @@ function PlaylistDetailScreen({ playlist, songs, onBack, onPlaySong, onToggleSon
                     <span className="w-8 h-8 rounded-md bg-white/[0.08] overflow-hidden flex items-center justify-center shrink-0">{song.coverUrl ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" /> : <Music2 className="w-4 h-4 text-violet-300" />}</span>
                     <span className="truncate text-sm text-gray-100">{song.title || song.fileName}</span>
                   </div>
-                  <button type="button" onClick={() => onToggleSongInPlaylist(song.id)} className="text-[11px] px-2 py-1 rounded-full border border-white/12 inline-flex items-center gap-1"><Plus className="w-3 h-3" />Add</button>
+                  <button type="button" onClick={() => onToggleSongInPlaylist(song.id)} className="ui-btn-primary text-[11px] px-2 py-1 rounded-full inline-flex items-center gap-1"><Plus className="w-3 h-3" />Add</button>
                 </div>
               ))}
             </div>

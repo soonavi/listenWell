@@ -11,7 +11,7 @@ function UploadScreen({ onUpload }) {
       transition={{ duration: 0.5, ease: 'easeOut' }}
     >
       <motion.div
-        className="relative z-10 max-w-md w-full flex flex-col items-center gap-5 sm:gap-6"
+        className="relative z-10 max-w-lg w-full flex flex-col items-center gap-5 sm:gap-6"
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.55, ease: 'easeOut', delay: 0.1 }}
@@ -24,7 +24,7 @@ function UploadScreen({ onUpload }) {
             Bring your audio files in, customize them, and play them your way.
           </p>
         </div>
-        <label className="cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-10 sm:px-14 py-8 sm:py-10 flex flex-col items-center gap-3 hover:border-violet-500/60 hover:bg-white/[0.06] transition-all duration-200">
+        <label className="cursor-pointer w-full rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-10 sm:px-14 py-8 sm:py-10 flex flex-col items-center gap-3 hover:border-violet-500/60 hover:bg-white/[0.06] transition-all duration-200 glass-card">
           <span className="text-sm sm:text-base text-gray-200">
             Add audio files
           </span>

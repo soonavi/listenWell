@@ -59,6 +59,19 @@ function safeSetStorage(key, value) {
   }
 }
 
+function normalizeThemeId(themeId) {
+  const map = {
+    'deep-space': 'dark',
+    'neon-grid': 'dark',
+    hologram: 'pink',
+    light: 'light',
+    dark: 'dark',
+    sunset: 'sunset',
+    pink: 'pink',
+  }
+  return map[themeId] || 'dark'
+}
+
 function App() {
   const [songs, setSongs] = useState([])
   const [selectedSongIndex, setSelectedSongIndex] = useState(null)
@@ -88,14 +101,20 @@ function App() {
   const visualizerCanvasRef = useRef(null)
   const [recentItems, setRecentItems] = useState([]) // {type: 'song'|'playlist', id}
   const [showLogoSymbol, setShowLogoSymbol] = useState(true)
-  const [theme, setTheme] = useState(() => safeGetStorage('listenwell-theme', 'deep-space'))
+  const [theme, setTheme] = useState(() => normalizeThemeId(safeGetStorage('listenwell-theme', 'dark')))
   const [accentColor, setAccentColor] = useState('139 92 246')
   const [shimmer, setShimmer] = useState({ low: 0, mid: 0, high: 0 })
   const [settingsPosition, setSettingsPosition] = useState(() => {
     const stored = safeGetStorage('listenwell-settings-position', null)
     if (!stored) return { x: 0, y: 0 }
     try {
-      return JSON.parse(stored)
+      const parsed = JSON.parse(stored)
+      const x = Number(parsed?.x)
+      const y = Number(parsed?.y)
+      return {
+        x: Number.isFinite(x) ? x : 0,
+        y: Number.isFinite(y) ? y : 0,
+      }
     } catch {
       return { x: 0, y: 0 }
     }
@@ -322,7 +341,7 @@ function App() {
   }
 
   const applyPreset = (preset) => {
-    setTheme(preset.theme)
+    setTheme(normalizeThemeId(preset.theme))
     setEqPreset(preset.eqPreset)
     setVolume(preset.volume)
     setPlaybackRate(preset.playbackRate)
@@ -499,6 +518,18 @@ function App() {
       setSettingsPosition({ x: targetX, y: targetY })
     }
   }, [showSettings, settingsPosition.x, settingsPosition.y])
+
+  const toggleSettingsPanel = () => {
+    if (!showSettings && settingsButtonRef.current) {
+      const buttonRect = settingsButtonRef.current.getBoundingClientRect()
+      const fallbackX = buttonRect.left - 120
+      const fallbackY = buttonRect.top - 320
+      const targetX = Math.max(8, Math.min(window.innerWidth - 340, fallbackX))
+      const targetY = Math.max(8, Math.min(window.innerHeight - 80, fallbackY))
+      setSettingsPosition({ x: targetX, y: targetY })
+    }
+    setShowSettings((prev) => !prev)
+  }
 
   useEffect(() => {
     if (!showLogoMenu) return
@@ -1114,15 +1145,16 @@ function App() {
               <div className="flex flex-col gap-1.5">
                 <span className="font-medium">Scene theme</span>
                 <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'neon-grid', label: 'Neon Grid' },
-                    { id: 'deep-space', label: 'Deep Space' },
-                    { id: 'hologram', label: 'Hologram' },
+                    {[
+                    { id: 'light', label: 'Light' },
+                    { id: 'dark', label: 'Dark' },
+                    { id: 'sunset', label: 'Sunset' },
+                    { id: 'pink', label: 'Pink' },
                   ].map((scene) => (
                     <button
                       key={scene.id}
                       type="button"
-                      onClick={() => setTheme(scene.id)}
+                      onClick={() => setTheme(normalizeThemeId(scene.id))}
                       className={`rounded-lg border px-2 py-1.5 text-[11px] text-center ${
                         theme === scene.id
                           ? 'border-cyan-300/70 bg-cyan-500/10 text-cyan-200'
@@ -1308,7 +1340,7 @@ function App() {
         <button
           ref={settingsButtonRef}
           type="button"
-          onClick={() => setShowSettings((prev) => !prev)}
+          onClick={toggleSettingsPanel}
           className="magnetic-hover ml-2 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
         >
           <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
@@ -1378,11 +1410,11 @@ function App() {
             <motion.button type="button" onClick={() => setShowAboutModal(false)} className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
             <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }} className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(92vw,560px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 shadow-2xl glass-card">
               <div className="flex items-center justify-between mb-3"><h3 className="text-base font-semibold text-cyan-200">About ListenWell</h3><button type="button" onClick={() => setShowAboutModal(false)} className="text-xs text-gray-400 hover:text-white">Close</button></div>
-              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-line">ListenWell was built out of a simple frustration — why pay a monthly fee just to listen to music you already have? We're a small team of students who believed your music should be yours, fully and without conditions.
+              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-line">ListenWell was built out of a simple frustration — why pay a monthly fee just to listen to music you already have? I'm a student who believes your music should be yours, fully and without conditions.
 No algorithms deciding what you hear next. No subscriptions. No data harvesting. Just your library, the way you want it.
-We built this because we use it. And we hope you do too.
+I built this because I use it, and I hope you do too.
 
--- Ben Krause, Emanuel Shilaku </p>
+-- Ben Krause </p>
             </motion.div>
           </>
         )}
