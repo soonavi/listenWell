@@ -107,22 +107,22 @@ function SongsScreen({
             <select
               value={songFilter}
               onChange={(e) => onChangeSongFilter(e.target.value)}
-              className="appearance-none pr-8 pl-3 py-1.5 rounded-full border border-white/15 bg-white/90 text-black text-xs sm:text-sm"
+              className="ui-pill appearance-none pr-8 pl-3 py-1.5 text-xs sm:text-sm focus-visible:ring-2 focus-visible:ring-violet-400/70"
               aria-label="Song filter"
             >
               <option value="all">All songs</option>
               <option value="loved">Loved songs</option>
             </select>
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-700">▾</span>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-300">▾</span>
           </div>
 
           <div className="relative">
-            <select value={sortBy} onChange={(e) => onChangeSortBy(e.target.value)} className="appearance-none pr-8 pl-3 py-1.5 rounded-full border border-white/15 bg-white/90 text-black text-xs sm:text-sm">
+            <select value={sortBy} onChange={(e) => onChangeSortBy(e.target.value)} className="ui-pill appearance-none pr-8 pl-3 py-1.5 text-xs sm:text-sm focus-visible:ring-2 focus-visible:ring-violet-400/70">
               <option value="default">Sort: Default</option>
               <option value="title">Sort: Title</option>
               <option value="artist">Sort: Artist</option>
             </select>
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-700 text-xs">▾</span>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs">▾</span>
           </div>
 
           <div className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1.5 text-[11px] sm:text-xs text-gray-200">
@@ -139,14 +139,14 @@ function SongsScreen({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search title, artist, album..."
-              className="w-full rounded-full border border-white/10 bg-white/[0.04] pl-9 pr-4 py-2 text-sm text-white placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+              className="ui-input w-full rounded-full pl-11 pr-20 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
               aria-label="Search songs"
             />
             {normalizedQuery ? (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-200 border border-white/15 rounded-full px-2.5 py-1 hover:bg-white/[0.08]"
+                className="ui-btn-secondary absolute right-2 top-1/2 -translate-y-1/2 text-xs rounded-full px-2.5 py-1"
               >
                 Clear
               </button>

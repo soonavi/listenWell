@@ -21,7 +21,7 @@ function PlaylistsScreen({ playlists, onCreatePlaylist, onSelectPlaylist }) {
           type="button"
           aria-label="Create playlist"
           onClick={() => setShowCreatePopup(true)}
-          className="w-8 h-8 rounded-full border border-violet-500/70 text-violet-300 hover:bg-violet-500/10 flex items-center justify-center transition"
+          className="ui-btn-primary w-8 h-8 rounded-full flex items-center justify-center"
         >
           <Plus className="w-4 h-4" />
         </button>
@@ -65,20 +65,20 @@ function PlaylistsScreen({ playlists, onCreatePlaylist, onSelectPlaylist }) {
               resetCreateForm()
               setShowCreatePopup(false)
             }}
-            className="w-[min(92vw,420px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-4 flex flex-col gap-3"
+            className="w-[min(92vw,420px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-4 sm:p-5 flex flex-col gap-3 glass-card"
           >
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-cyan-200">Create playlist</h3>
-              <button type="button" className="text-xs text-gray-400 hover:text-white" onClick={() => { setShowCreatePopup(false); resetCreateForm() }}>Close</button>
+              <button type="button" className="ui-btn-secondary text-xs px-2.5 py-1.5" onClick={() => { setShowCreatePopup(false); resetCreateForm() }}>Close</button>
             </div>
-            <input type="text" value={playlistName} onChange={(e) => setPlaylistName(e.target.value)} placeholder="Playlist name" className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" />
-            <textarea rows={3} value={playlistDescription} onChange={(e) => setPlaylistDescription(e.target.value)} placeholder="Playlist description" className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white resize-none" />
+            <input type="text" value={playlistName} onChange={(e) => setPlaylistName(e.target.value)} placeholder="Playlist name" className="ui-input rounded-lg px-3 py-2 text-sm" />
+            <textarea rows={3} value={playlistDescription} onChange={(e) => setPlaylistDescription(e.target.value)} placeholder="Playlist description" className="ui-input rounded-lg px-3 py-2 text-sm resize-none" />
             <label className="text-xs text-gray-300 inline-flex items-center gap-2 cursor-pointer">
               <ImagePlus className="w-4 h-4 text-violet-300" />
               {playlistCoverUrl ? 'Cover selected' : 'Add cover photo'}
               <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; setPlaylistCoverUrl(URL.createObjectURL(file)) }} />
             </label>
-            <button type="submit" className="px-3 py-2 rounded-lg border border-violet-500/70 text-violet-200 hover:bg-violet-500/10 text-sm font-medium transition">Create playlist</button>
+            <button type="submit" className="ui-btn-primary px-3 py-2 text-sm font-medium text-center">Create playlist</button>
           </form>
         </div>
       )}
