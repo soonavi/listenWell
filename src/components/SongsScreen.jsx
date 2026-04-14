@@ -132,13 +132,13 @@ function SongsScreen({
         </div>
         <div className="relative mb-3 sm:mb-4 flex justify-center">
           <label className="relative block w-full sm:max-w-md md:max-w-lg">
-            <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-0" />
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="ui-input w-full rounded-full pl-11 pr-20 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+              className="ui-input relative z-10 w-full rounded-full pl-11 pr-20 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
               aria-label="Search songs"
             />
             {normalizedQuery ? (
