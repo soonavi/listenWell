@@ -1,11 +1,22 @@
 #root {
   min-height: 100vh;
   min-height: 100dvh;
+  background:
+    radial-gradient(circle at 15% 10%, rgb(139 92 246 / 0.15), transparent 35%),
+    radial-gradient(circle at 85% 85%, rgb(45 212 191 / 0.14), transparent 32%);
 }
 
 button {
   all: unset;
   cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb, 139 92 246) / 0.8);
+  outline-offset: 2px;
 }
 
 /* One cat hanging over the top of the playback bar */
@@ -137,4 +148,22 @@ button {
   border-radius: 999px;
   background: linear-gradient(180deg, rgb(var(--accent-rgb) / 0.95), rgb(34 211 238 / 0.42));
   transition: height 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.song-toolbar {
+  background: linear-gradient(120deg, rgb(139 92 246 / 0.1), rgb(34 211 238 / 0.06));
+  backdrop-filter: blur(10px);
+}
+
+.song-grid-shell {
+  background-image: linear-gradient(140deg, rgb(255 255 255 / 0.04), rgb(255 255 255 / 0.01));
+}
+
+.song-tile {
+  border: 1px solid rgb(255 255 255 / 0.05);
+}
+
+.song-tile:hover {
+  border-color: rgb(139 92 246 / 0.35);
+  box-shadow: 0 8px 24px rgb(10 10 12 / 0.35);
 }
