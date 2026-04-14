@@ -1361,11 +1361,11 @@ function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
                 transition={{ duration: 0.2, ease: 'easeOut' }}
-                className="absolute right-0 bottom-[calc(100%+0.5rem)] w-64 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1 z-30"
+                className="absolute right-0 bottom-[calc(100%+0.5rem)] w-56 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1 z-30"
               >
-                <button type="button" onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2 whitespace-nowrap"><UserCircle2 className="w-4 h-4 shrink-0" /><span>Account</span></button>
-                <button type="button" onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2 whitespace-nowrap"><Info className="w-4 h-4 shrink-0" /><span>About us</span></button>
-                <button type="button" onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 inline-flex items-center gap-2 whitespace-nowrap"><History className="w-4 h-4 shrink-0" /><span>Listening history</span></button>
+                <button type="button" onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex items-center justify-start gap-2.5 leading-none"><UserCircle2 className="w-4 h-4 shrink-0" /><span className="leading-none">Account</span></button>
+                <button type="button" onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex items-center justify-start gap-2.5 leading-none"><Info className="w-4 h-4 shrink-0" /><span className="leading-none">About us</span></button>
+                <button type="button" onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex items-center justify-start gap-2.5 leading-none"><History className="w-4 h-4 shrink-0" /><span className="leading-none">Listening history</span></button>
               </motion.div>
             )}
           </AnimatePresence>
