@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion'
-import { Music2, Heart, Plus, Search, Sparkles } from 'lucide-react'
+import { Music2, Heart, Plus, Search, Sparkles, CheckSquare, Square } from 'lucide-react'
 
 function SongsScreen({
   songs,
@@ -26,6 +26,9 @@ function SongsScreen({
   onParallaxLeave,
 }) {
   const [searchQuery, setSearchQuery] = useState('')
+  const [quickFilter, setQuickFilter] = useState('all')
+  const [isBulkMode, setIsBulkMode] = useState(false)
+  const [selectedSongIds, setSelectedSongIds] = useState([])
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(0)
@@ -47,8 +50,17 @@ function SongsScreen({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  useEffect(() => {
+    if (!isBulkMode) setSelectedSongIds([])
+  }, [isBulkMode])
+
   const visibleSongs = useMemo(() => [...songs]
     .filter((song) => (songFilter === 'loved' ? lovedSongIds.includes(song.id) : true))
+    .filter((song) => {
+      if (quickFilter === 'artwork') return Boolean(song.coverUrl)
+      if (quickFilter === 'untagged') return !song.artist?.trim()
+      return true
+    })
     .filter((song) => {
       if (!normalizedQuery) return true
       const title = (song.title || song.fileName || '').toLowerCase()
@@ -60,7 +72,7 @@ function SongsScreen({
       if (sortBy === 'title') return (a.title || a.fileName).localeCompare(b.title || b.fileName)
       if (sortBy === 'artist') return (a.artist || '').localeCompare(b.artist || '')
       return 0
-    }), [songs, songFilter, lovedSongIds, normalizedQuery, sortBy])
+    }), [songs, songFilter, lovedSongIds, quickFilter, normalizedQuery, sortBy])
 
   useEffect(() => {
     const viewport = gridViewportRef.current
@@ -99,6 +111,21 @@ function SongsScreen({
   const paddingTop = startRow * rowHeight
   const paddingBottom = Math.max(0, (rowCount - endRow - 1) * rowHeight)
 
+  const toggleBulkSong = (songId) => {
+    setSelectedSongIds((prev) => (prev.includes(songId) ? prev.filter((id) => id !== songId) : [...prev, songId]))
+  }
+
+  const addSelectedToPlaylist = () => {
+    selectedSongIds.forEach((songId) => onAddSongQuick(songId))
+  }
+
+  const setLovedForSelected = (shouldBeLoved) => {
+    selectedSongIds.forEach((songId) => {
+      const currentlyLoved = lovedSongIds.includes(songId)
+      if (currentlyLoved !== shouldBeLoved) onToggleLoved(songId)
+    })
+  }
+
   return (
     <>
       <section className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -112,8 +139,8 @@ function SongsScreen({
                 className="appearance-none pr-8 pl-3 py-1.5 rounded-full border border-white/15 bg-white/[0.06] text-white text-xs sm:text-sm"
                 aria-label="Song filter"
               >
-                <option value="all" style={{ color: 'black' }}>All songs</option>
-                <option value="loved" style={{ color: 'black' }}>Loved songs</option>
+                <option value="all">All songs</option>
+                <option value="loved">Loved songs</option>
               </select>
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
             </div>
@@ -126,15 +153,15 @@ function SongsScreen({
 
           <div className="relative self-start sm:self-auto">
             <select value={sortBy} onChange={(e) => onChangeSortBy(e.target.value)} className="appearance-none pr-8 bg-white/[0.04] border border-white/10 rounded-full px-3 py-1.5 text-xs text-white">
-              <option value="default" style={{ color: 'black' }}>Sort: Default</option>
-              <option value="title" style={{ color: 'black' }}>Sort: Title</option>
-              <option value="artist" style={{ color: 'black' }}>Sort: Artist</option>
+              <option value="default">Sort: Default</option>
+              <option value="title">Sort: Title</option>
+              <option value="artist">Sort: Artist</option>
             </select>
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">▾</span>
           </div>
         </div>
-        <div className="mb-3 sm:mb-4 flex items-center justify-center min-h-[44px]">
-          <label className="relative block w-full sm:max-w-md">
+        <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+          <label className="relative block w-full sm:max-w-sm">
             <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
@@ -145,16 +172,37 @@ function SongsScreen({
               className="w-full rounded-full border border-white/10 bg-white/[0.04] pl-9 pr-4 py-2 text-sm text-white placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
               aria-label="Search songs"
             />
-            {normalizedQuery ? (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-300 border border-white/15 rounded-full px-2 py-0.5 hover:bg-white/[0.05]"
-              >
-                Clear
-              </button>
-            ) : null}
           </label>
+          <div className="flex items-center gap-1.5 text-[11px] sm:text-xs">
+            <button type="button" onClick={() => setQuickFilter('all')} className={`px-2.5 py-1.5 rounded-full border ${quickFilter === 'all' ? 'bg-violet-500/25 border-violet-300/35 text-white' : 'border-white/10 text-gray-300 hover:bg-white/[0.05]'}`}>All</button>
+            <button type="button" onClick={() => setQuickFilter('artwork')} className={`px-2.5 py-1.5 rounded-full border ${quickFilter === 'artwork' ? 'bg-violet-500/25 border-violet-300/35 text-white' : 'border-white/10 text-gray-300 hover:bg-white/[0.05]'}`}>Has artwork</button>
+            <button type="button" onClick={() => setQuickFilter('untagged')} className={`px-2.5 py-1.5 rounded-full border ${quickFilter === 'untagged' ? 'bg-violet-500/25 border-violet-300/35 text-white' : 'border-white/10 text-gray-300 hover:bg-white/[0.05]'}`}>Missing artist</button>
+          </div>
+          {normalizedQuery ? (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="self-start text-xs text-gray-300 border border-white/15 rounded-full px-3 py-2 hover:bg-white/[0.05]"
+            >
+              Clear search
+            </button>
+          ) : null}
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setIsBulkMode((prev) => !prev)} className={`text-xs px-3 py-1.5 rounded-full border inline-flex items-center gap-1.5 ${isBulkMode ? 'bg-violet-500/25 border-violet-300/35 text-white' : 'border-white/15 text-gray-200 hover:bg-white/[0.05]'}`}>
+            {isBulkMode ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+            Bulk select
+          </button>
+          {isBulkMode ? (
+            <>
+              <button type="button" onClick={() => setSelectedSongIds(visibleSongs.map((song) => song.id))} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05]">Select visible</button>
+              <button type="button" onClick={() => setSelectedSongIds([])} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05]">Clear</button>
+              <button type="button" onClick={addSelectedToPlaylist} disabled={selectedSongIds.length === 0} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05] disabled:opacity-50 disabled:cursor-not-allowed">Add selected to playlist</button>
+              <button type="button" onClick={() => setLovedForSelected(true)} disabled={selectedSongIds.length === 0} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05] disabled:opacity-50 disabled:cursor-not-allowed">Love selected</button>
+              <button type="button" onClick={() => setLovedForSelected(false)} disabled={selectedSongIds.length === 0} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05] disabled:opacity-50 disabled:cursor-not-allowed">Unlove selected</button>
+              <span className="text-xs text-gray-400">{selectedSongIds.length} selected</span>
+            </>
+          ) : null}
         </div>
 
         {visibleSongs.length === 0 ? (
@@ -189,8 +237,14 @@ function SongsScreen({
                   )
                 }
                 const i = songs.findIndex((s) => s.id === song.id)
+                const isSelectedInBulk = selectedSongIds.includes(song.id)
                 return (
-                <motion.button key={song.id} type="button" onClick={() => onSelectSong(i)} className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'} ${i === currentTrackIndex ? 'opacity-100' : ''}`} whileHover={{ y: -4, scale: 1.03 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+                <motion.button key={song.id} type="button" onClick={() => (isBulkMode ? toggleBulkSong(song.id) : onSelectSong(i))} className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'} ${i === currentTrackIndex ? 'opacity-100' : ''} ${isSelectedInBulk ? 'ring-2 ring-cyan-400/80 bg-cyan-500/10' : ''}`} whileHover={{ y: -4, scale: 1.03 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+                  {isBulkMode ? (
+                    <span className={`absolute top-2 left-2 z-10 w-5 h-5 rounded-md border inline-flex items-center justify-center ${isSelectedInBulk ? 'bg-cyan-400 text-black border-cyan-300' : 'bg-black/50 border-white/40 text-transparent'}`}>
+                      ✓
+                    </span>
+                  ) : null}
                   <div className="relative w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center text-3xl shadow-inner">
                     {song.coverUrl ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" /> : <Music2 className="w-10 h-10 text-white/60" />}
                     <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
