@@ -107,7 +107,7 @@ function SongsScreen({
             <select
               value={songFilter}
               onChange={(e) => onChangeSongFilter(e.target.value)}
-              className="ui-pill appearance-none pr-8 pl-3 py-1.5 text-xs sm:text-sm focus-visible:ring-2 focus-visible:ring-violet-400/70"
+              className="ui-pill song-toolbar-select appearance-none pr-8 pl-3 py-1.5 text-xs sm:text-sm focus-visible:ring-2 focus-visible:ring-violet-400/70"
               aria-label="Song filter"
             >
               <option value="all">All songs</option>
@@ -117,7 +117,7 @@ function SongsScreen({
           </div>
 
           <div className="relative">
-            <select value={sortBy} onChange={(e) => onChangeSortBy(e.target.value)} className="ui-pill appearance-none pr-8 pl-3 py-1.5 text-xs sm:text-sm focus-visible:ring-2 focus-visible:ring-violet-400/70">
+            <select value={sortBy} onChange={(e) => onChangeSortBy(e.target.value)} className="ui-pill song-toolbar-select appearance-none pr-8 pl-3 py-1.5 text-xs sm:text-sm focus-visible:ring-2 focus-visible:ring-violet-400/70">
               <option value="default">Sort: Default</option>
               <option value="title">Sort: Title</option>
               <option value="artist">Sort: Artist</option>
