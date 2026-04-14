@@ -1,7 +1,7 @@
-import React from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion'
-import { Music2, Heart, Plus } from 'lucide-react'
+import { Music2, Heart, Plus, Search, Sparkles, CheckSquare, Square } from 'lucide-react'
 
 function SongsScreen({
   songs,
@@ -25,41 +25,226 @@ function SongsScreen({
   onParallaxMove,
   onParallaxLeave,
 }) {
-  const visibleSongs = [...songs]
+  const [searchQuery, setSearchQuery] = useState('')
+  const [quickFilter, setQuickFilter] = useState('all')
+  const [isBulkMode, setIsBulkMode] = useState(false)
+  const [selectedSongIds, setSelectedSongIds] = useState([])
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const [viewportWidth, setViewportWidth] = useState(0)
+  const searchInputRef = useRef(null)
+  const gridViewportRef = useRef(null)
+  const normalizedQuery = searchQuery.trim().toLowerCase()
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === '/' && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement)) {
+        event.preventDefault()
+        searchInputRef.current?.focus()
+      }
+      if (event.key === 'Escape' && document.activeElement === searchInputRef.current) {
+        setSearchQuery('')
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  useEffect(() => {
+    if (!isBulkMode) setSelectedSongIds([])
+  }, [isBulkMode])
+
+  const visibleSongs = useMemo(() => [...songs]
     .filter((song) => (songFilter === 'loved' ? lovedSongIds.includes(song.id) : true))
+    .filter((song) => {
+      if (quickFilter === 'artwork') return Boolean(song.coverUrl)
+      if (quickFilter === 'untagged') return !song.artist?.trim()
+      return true
+    })
+    .filter((song) => {
+      if (!normalizedQuery) return true
+      const title = (song.title || song.fileName || '').toLowerCase()
+      const artist = (song.artist || '').toLowerCase()
+      const album = (song.album || '').toLowerCase()
+      return title.includes(normalizedQuery) || artist.includes(normalizedQuery) || album.includes(normalizedQuery)
+    })
     .sort((a, b) => {
       if (sortBy === 'title') return (a.title || a.fileName).localeCompare(b.title || b.fileName)
       if (sortBy === 'artist') return (a.artist || '').localeCompare(b.artist || '')
       return 0
+    }), [songs, songFilter, lovedSongIds, quickFilter, normalizedQuery, sortBy])
+
+  useEffect(() => {
+    const viewport = gridViewportRef.current
+    if (!viewport) return
+
+    const measure = () => {
+      setViewportHeight(viewport.clientHeight || 0)
+      setViewportWidth(viewport.clientWidth || 0)
+    }
+    measure()
+
+    const onScroll = () => setScrollTop(viewport.scrollTop)
+    viewport.addEventListener('scroll', onScroll)
+
+    const resizeObserver = new ResizeObserver(measure)
+    resizeObserver.observe(viewport)
+    window.addEventListener('resize', measure)
+
+    return () => {
+      viewport.removeEventListener('scroll', onScroll)
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [visibleSongs.length])
+
+  const virtualColumns = viewportWidth >= 1024 ? 5 : viewportWidth >= 768 ? 4 : viewportWidth >= 640 ? 3 : 2
+  const virtualGap = viewportWidth >= 640 ? 20 : 16
+  const rowHeight = viewportWidth >= 640 ? 285 : 245
+  const virtualItems = useMemo(() => [...visibleSongs, { id: '__upload__', uploadTile: true }], [visibleSongs])
+  const rowCount = Math.ceil(virtualItems.length / virtualColumns)
+  const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - 1)
+  const endRow = Math.min(rowCount - 1, Math.ceil((scrollTop + viewportHeight) / rowHeight) + 1)
+  const startIndex = startRow * virtualColumns
+  const endIndex = Math.min(virtualItems.length, (endRow + 1) * virtualColumns)
+  const renderedItems = virtualItems.slice(startIndex, endIndex)
+  const paddingTop = startRow * rowHeight
+  const paddingBottom = Math.max(0, (rowCount - endRow - 1) * rowHeight)
+
+  const toggleBulkSong = (songId) => {
+    setSelectedSongIds((prev) => (prev.includes(songId) ? prev.filter((id) => id !== songId) : [...prev, songId]))
+  }
+
+  const addSelectedToPlaylist = () => {
+    selectedSongIds.forEach((songId) => onAddSongQuick(songId))
+  }
+
+  const setLovedForSelected = (shouldBeLoved) => {
+    selectedSongIds.forEach((songId) => {
+      const currentlyLoved = lovedSongIds.includes(songId)
+      if (currentlyLoved !== shouldBeLoved) onToggleLoved(songId)
     })
+  }
 
   return (
     <>
       <section className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div className="inline-flex rounded-full border border-white/10 bg-white/[0.03] p-1">
-            <button type="button" onClick={() => onChangeSongFilter('all')} className={`px-3 py-1 rounded-full text-xs ${songFilter === 'all' ? 'bg-violet-500/25 text-white' : 'text-gray-300'}`}>All songs</button>
-            <button type="button" onClick={() => onChangeSongFilter('loved')} className={`px-3 py-1 rounded-full text-xs inline-flex items-center gap-1 ${songFilter === 'loved' ? 'bg-violet-500/25 text-white' : 'text-gray-300'}`}><Heart className="w-3.5 h-3.5" />Loved songs</button>
+        <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 song-toolbar rounded-2xl border border-white/10 px-3 py-2.5 sm:px-4 sm:py-3">
+          <div className="flex items-center gap-2 text-xs sm:text-sm">
+            <span className="text-gray-300/90">Browse</span>
+            <div className="relative">
+              <select
+                value={songFilter}
+                onChange={(e) => onChangeSongFilter(e.target.value)}
+                className="appearance-none pr-8 pl-3 py-1.5 rounded-full border border-white/15 bg-white/[0.06] text-white text-xs sm:text-sm"
+                aria-label="Song filter"
+              >
+                <option value="all">All songs</option>
+                <option value="loved">Loved songs</option>
+              </select>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">▾</span>
+            </div>
           </div>
-          <select value={sortBy} onChange={(e) => onChangeSortBy(e.target.value)} className="bg-white/[0.04] border border-white/10 rounded-full px-3 py-1.5 text-xs text-white">
-            <option value="default">Sort: Default</option>
-            <option value="title">Sort: Title</option>
-            <option value="artist">Sort: Artist</option>
-          </select>
+
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1.5 text-[11px] sm:text-xs text-gray-200">
+            <Heart className={`w-3.5 h-3.5 ${songFilter === 'loved' ? 'text-pink-400' : 'text-gray-400'}`} fill={songFilter === 'loved' ? 'currentColor' : 'none'} />
+            {songFilter === 'loved' ? `${visibleSongs.length} loved tracks` : `${visibleSongs.length} tracks`}
+          </div>
+
+          <div className="relative self-start sm:self-auto">
+            <select value={sortBy} onChange={(e) => onChangeSortBy(e.target.value)} className="appearance-none pr-8 bg-white/[0.04] border border-white/10 rounded-full px-3 py-1.5 text-xs text-white">
+              <option value="default">Sort: Default</option>
+              <option value="title">Sort: Title</option>
+              <option value="artist">Sort: Artist</option>
+            </select>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">▾</span>
+          </div>
+        </div>
+        <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+          <label className="relative block w-full sm:max-w-sm">
+            <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search title, artist, album..."
+              className="w-full rounded-full border border-white/10 bg-white/[0.04] pl-9 pr-4 py-2 text-sm text-white placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+              aria-label="Search songs"
+            />
+          </label>
+          <div className="flex items-center gap-1.5 text-[11px] sm:text-xs">
+            <button type="button" onClick={() => setQuickFilter('all')} className={`px-2.5 py-1.5 rounded-full border ${quickFilter === 'all' ? 'bg-violet-500/25 border-violet-300/35 text-white' : 'border-white/10 text-gray-300 hover:bg-white/[0.05]'}`}>All</button>
+            <button type="button" onClick={() => setQuickFilter('artwork')} className={`px-2.5 py-1.5 rounded-full border ${quickFilter === 'artwork' ? 'bg-violet-500/25 border-violet-300/35 text-white' : 'border-white/10 text-gray-300 hover:bg-white/[0.05]'}`}>Has artwork</button>
+            <button type="button" onClick={() => setQuickFilter('untagged')} className={`px-2.5 py-1.5 rounded-full border ${quickFilter === 'untagged' ? 'bg-violet-500/25 border-violet-300/35 text-white' : 'border-white/10 text-gray-300 hover:bg-white/[0.05]'}`}>Missing artist</button>
+          </div>
+          {normalizedQuery ? (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="self-start text-xs text-gray-300 border border-white/15 rounded-full px-3 py-2 hover:bg-white/[0.05]"
+            >
+              Clear search
+            </button>
+          ) : null}
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setIsBulkMode((prev) => !prev)} className={`text-xs px-3 py-1.5 rounded-full border inline-flex items-center gap-1.5 ${isBulkMode ? 'bg-violet-500/25 border-violet-300/35 text-white' : 'border-white/15 text-gray-200 hover:bg-white/[0.05]'}`}>
+            {isBulkMode ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+            Bulk select
+          </button>
+          {isBulkMode ? (
+            <>
+              <button type="button" onClick={() => setSelectedSongIds(visibleSongs.map((song) => song.id))} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05]">Select visible</button>
+              <button type="button" onClick={() => setSelectedSongIds([])} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05]">Clear</button>
+              <button type="button" onClick={addSelectedToPlaylist} disabled={selectedSongIds.length === 0} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05] disabled:opacity-50 disabled:cursor-not-allowed">Add selected to playlist</button>
+              <button type="button" onClick={() => setLovedForSelected(true)} disabled={selectedSongIds.length === 0} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05] disabled:opacity-50 disabled:cursor-not-allowed">Love selected</button>
+              <button type="button" onClick={() => setLovedForSelected(false)} disabled={selectedSongIds.length === 0} className="text-xs px-3 py-1.5 rounded-full border border-white/15 text-gray-200 hover:bg-white/[0.05] disabled:opacity-50 disabled:cursor-not-allowed">Unlove selected</button>
+              <span className="text-xs text-gray-400">{selectedSongIds.length} selected</span>
+            </>
+          ) : null}
         </div>
 
         {visibleSongs.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-sm text-gray-500 gap-3">
-            <p>{songFilter === 'loved' ? 'No loved songs yet.' : 'No songs yet.'}</p>
+            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center text-violet-300"><Sparkles className="w-6 h-6" /></span>
+            <p>{normalizedQuery ? 'No songs match your search.' : songFilter === 'loved' ? 'No loved songs yet.' : 'No songs yet.'}</p>
             <button type="button" onClick={onGoToUpload} className="px-4 py-2 rounded-full bg-white text-black text-xs font-medium hover:bg-gray-100 transition">Upload music</button>
           </div>
         ) : (
-          <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4 glass-card parallax-card" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5 overflow-y-auto">
-              {visibleSongs.map((song) => {
+          <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4 glass-card parallax-card song-grid-shell" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
+            <div ref={gridViewportRef} className="h-full overflow-y-auto">
+              <div style={{ paddingTop: `${paddingTop}px`, paddingBottom: `${paddingBottom}px` }}>
+                <div className="grid gap-4 sm:gap-5" style={{ gridTemplateColumns: `repeat(${virtualColumns}, minmax(0, 1fr))`, gap: `${virtualGap}px` }}>
+              {renderedItems.map((song) => {
+                if (song.uploadTile) {
+                  return (
+                    <label key="upload-tile" className="rounded-2xl border border-dashed border-white/20 bg-white/[0.02] hover:bg-white/[0.05] cursor-pointer p-1 transition-all duration-200">
+                      <div className="w-full aspect-square rounded-xl bg-white/[0.04] border border-white/10 flex flex-col items-center justify-center gap-2 text-gray-300">
+                        <span className="w-10 h-10 rounded-full border border-white/30 inline-flex items-center justify-center">
+                          <Plus className="w-5 h-5" />
+                        </span>
+                        <span className="text-xs">Upload song</span>
+                      </div>
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        multiple
+                        className="hidden"
+                        onChange={onUploadMore}
+                      />
+                    </label>
+                  )
+                }
                 const i = songs.findIndex((s) => s.id === song.id)
+                const isSelectedInBulk = selectedSongIds.includes(song.id)
                 return (
-                <motion.button key={song.id} type="button" onClick={() => onSelectSong(i)} className={`flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1 transition-all duration-200 ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.04]' : 'hover:bg-white/[0.04]'} ${i === currentTrackIndex ? 'opacity-100' : ''}`} whileHover={{ y: -4, scale: 1.03 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+                <motion.button key={song.id} type="button" onClick={() => (isBulkMode ? toggleBulkSong(song.id) : onSelectSong(i))} className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'} ${i === currentTrackIndex ? 'opacity-100' : ''} ${isSelectedInBulk ? 'ring-2 ring-cyan-400/80 bg-cyan-500/10' : ''}`} whileHover={{ y: -4, scale: 1.03 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+                  {isBulkMode ? (
+                    <span className={`absolute top-2 left-2 z-10 w-5 h-5 rounded-md border inline-flex items-center justify-center ${isSelectedInBulk ? 'bg-cyan-400 text-black border-cyan-300' : 'bg-black/50 border-white/40 text-transparent'}`}>
+                      ✓
+                    </span>
+                  ) : null}
                   <div className="relative w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center text-3xl shadow-inner">
                     {song.coverUrl ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" /> : <Music2 className="w-10 h-10 text-white/60" />}
                     <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
@@ -78,22 +263,8 @@ function SongsScreen({
                   </div>
                 </motion.button>
               )})}
-
-              <label className="rounded-2xl border border-dashed border-white/20 bg-white/[0.02] hover:bg-white/[0.05] cursor-pointer p-1 transition-all duration-200">
-                <div className="w-full aspect-square rounded-xl bg-white/[0.04] border border-white/10 flex flex-col items-center justify-center gap-2 text-gray-300">
-                  <span className="w-10 h-10 rounded-full border border-white/30 inline-flex items-center justify-center">
-                    <Plus className="w-5 h-5" />
-                  </span>
-                  <span className="text-xs">Upload song</span>
                 </div>
-                <input
-                  type="file"
-                  accept="audio/*"
-                  multiple
-                  className="hidden"
-                  onChange={onUploadMore}
-                />
-              </label>
+              </div>
             </div>
           </div>
         )}
