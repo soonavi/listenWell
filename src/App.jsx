@@ -20,6 +20,7 @@ import {
   ChevronUp,
   Plus,
   Heart,
+  Shuffle,
 } from 'lucide-react'
 
 function formatTime(seconds) {
@@ -91,6 +92,7 @@ function App() {
   const [songSortBy, setSongSortBy] = useState('default') // default | title | artist
   const [lovedSongIds, setLovedSongIds] = useState([])
   const [showNowPlayingAddMenu, setShowNowPlayingAddMenu] = useState(false)
+  const [shuffle, setShuffle] = useState(false)
   const audioRef = useRef(null)
   const audioContextRef = useRef(null)
   const sourceNodeRef = useRef(null)
@@ -143,6 +145,7 @@ function App() {
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const logoMenuRef = useRef(null)
   const nowPlayingMenuRef = useRef(null)
+  const stateRef = useRef({})
 
   const markSongHistory = useCallback((song) => {
     if (!song?.id) return
@@ -350,10 +353,9 @@ function App() {
     setBlurAmount(preset.blurAmount)
   }
 
-  const handleUpload = (e) => {
-    const files = Array.from(e.target.files || [])
+  const processAudioFiles = (fileList) => {
+    const files = Array.from(fileList || [])
     const audioFiles = files.filter((f) => f.type.startsWith('audio/'))
-
     if (audioFiles.length === 0) return
 
     const newSongs = audioFiles.map((f) => ({
@@ -373,11 +375,40 @@ function App() {
       setSelectedSongIndex(0)
       setCurrentTrackIndex(0)
     }
+  }
 
+  const handleUpload = (e) => {
+    processAudioFiles(e.target.files || [])
     if (e?.target) {
       // allow selecting the same file again in subsequent uploads
       e.target.value = ''
     }
+  }
+
+  const handleDeleteSong = (songId) => {
+    const idx = songs.findIndex((s) => s.id === songId)
+    if (idx === -1) return
+
+    if (currentTrackIndex === idx) {
+      audioRef.current?.pause()
+      setIsPlaying(false)
+      setCurrentTrackIndex(null)
+    } else if (currentTrackIndex !== null && currentTrackIndex > idx) {
+      setCurrentTrackIndex(currentTrackIndex - 1)
+    }
+
+    if (selectedSongIndex === idx) {
+      const remaining = songs.length - 1
+      setSelectedSongIndex(remaining > 0 ? Math.min(idx, remaining - 1) : null)
+    } else if (selectedSongIndex !== null && selectedSongIndex > idx) {
+      setSelectedSongIndex(selectedSongIndex - 1)
+    }
+
+    setSongs((prev) => prev.filter((s) => s.id !== songId))
+    setLovedSongIds((prev) => prev.filter((id) => id !== songId))
+    setPlaylists((prev) =>
+      prev.map((pl) => ({ ...pl, songIds: pl.songIds.filter((id) => id !== songId) })),
+    )
   }
 
   const handleSelectSong = (index) => {
@@ -604,6 +635,27 @@ function App() {
     }
   }, [isPlaying])
 
+  // Keep stateRef fresh every render so the keyboard handler always reads current state
+  stateRef.current = { isPlaying, currentTrackIndex, songs, shuffle }
+
+  // Space bar: play / pause
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === ' ') {
+        const { isPlaying: playing, currentTrackIndex: trackIdx } = stateRef.current
+        if (trackIdx == null) return
+        e.preventDefault()
+        const audio = audioRef.current
+        if (playing) { audio?.pause(); setIsPlaying(false) }
+        else { audio?.play().catch(() => {}); setIsPlaying(true) }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const handlePlayPause = () => {
     const audio = audioRef.current
     if (!audio || currentTrackIndex == null) return
@@ -627,7 +679,14 @@ function App() {
 
   const handleNext = () => {
     if (songs.length === 0) return
-    const next = currentTrackIndex === null ? 0 : (currentTrackIndex + 1) % songs.length
+    let next
+    if (shuffle && songs.length > 1) {
+      do {
+        next = Math.floor(Math.random() * songs.length)
+      } while (next === currentTrackIndex)
+    } else {
+      next = currentTrackIndex === null ? 0 : (currentTrackIndex + 1) % songs.length
+    }
     setCurrentTrackIndex(next)
     setSelectedSongIndex(next)
     setIsPlaying(true)
@@ -705,9 +764,20 @@ function App() {
           else setIsPlaying(false)
         }}
       />
-      {/* Top bar: navigation buttons + context actions */}
-      <header className="relative z-10 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center justify-center px-4 sm:px-8">
-        <nav className="flex items-center justify-center gap-2 sm:gap-3 w-full max-w-4xl">
+      {/* Top bar: logo mark + navigation + now-playing indicator */}
+      <header className="relative z-10 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center px-4 sm:px-8 gap-4">
+        {/* Logo mark */}
+        <div className="flex items-center gap-2 shrink-0">
+          <Music2 className="w-4 h-4 sm:w-5 sm:h-5 text-violet-400" />
+          <span
+            className="text-xs sm:text-sm font-semibold tracking-widest text-white/70 hidden sm:block"
+            style={{ fontFamily: "'Orbitron', system-ui, sans-serif" }}
+          >
+            LW
+          </span>
+        </div>
+
+        <nav className="flex-1 flex items-center justify-center gap-2 sm:gap-3">
           {[
             { id: 'library', label: 'Library' },
             { id: 'playlists', label: 'Playlists' },
@@ -717,8 +787,8 @@ function App() {
             <button
               key={tab.id}
               type="button"
-                onClick={() => setActivePage(tab.id)}
-                className={`magnetic-hover px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition border ${
+              onClick={() => setActivePage(tab.id)}
+              className={`magnetic-hover px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition border ${
                 activePage === tab.id || (tab.id === 'playlists' && activePage === 'playlist-detail')
                   ? 'bg-violet-600 border-violet-500 text-white'
                   : 'bg-transparent border-transparent text-gray-300 hover:bg-white/[0.04]'
@@ -728,6 +798,16 @@ function App() {
             </button>
           ))}
         </nav>
+
+        {/* Now-playing indicator (desktop only) */}
+        {nowPlaying ? (
+          <div className="hidden md:flex items-center gap-2 shrink-0 max-w-[180px] text-xs text-gray-500">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0 animate-pulse" />
+            <span className="truncate">{nowPlaying.title || nowPlaying.fileName}</span>
+          </div>
+        ) : (
+          <div className="hidden md:block w-[180px] shrink-0" />
+        )}
       </header>
 
       {/* Main Content Area */}
@@ -743,7 +823,7 @@ function App() {
               exit="exit"
               transition={{ duration: 0.35, ease: 'easeOut' }}
             >
-              <UploadScreen onUpload={handleUpload} />
+              <UploadScreen onUpload={handleUpload} onDrop={processAudioFiles} />
             </motion.div>
           )}
 
@@ -905,6 +985,7 @@ function App() {
                 onUploadMore={handleUpload}
                 onCoverUpload={handleCoverUpload}
                 onMetadataChange={handleMetadataChange}
+                onDeleteSong={handleDeleteSong}
                 onParallaxMove={handleParallaxMove}
                 onParallaxLeave={handleParallaxLeave}
               />
@@ -1262,7 +1343,16 @@ function App() {
         </div>
 
           <div className="flex-1 flex flex-col items-center gap-2 min-w-0 max-w-2xl">
-          <div className="flex gap-6 sm:gap-10 items-center">
+          <div className="flex gap-4 sm:gap-6 items-center">
+            <button
+              type="button"
+              onClick={() => setShuffle((prev) => !prev)}
+              disabled={songs.length === 0}
+              title={shuffle ? 'Shuffle on' : 'Shuffle off'}
+              className={`magnetic-hover p-1.5 sm:p-2 transition disabled:opacity-30 disabled:cursor-not-allowed ${shuffle ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
+            >
+              <Shuffle className="w-5 h-5" />
+            </button>
             <button
               type="button"
               onClick={handlePrev}
