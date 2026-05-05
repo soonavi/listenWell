@@ -101,10 +101,6 @@ function UploadScreen({ onUpload, onDrop }) {
             <Music2 className="w-3.5 h-3.5" /> All formats
           </span>
         </div>
-
-        <p className="text-[11px] text-gray-700 text-center">
-          All processing happens locally in your browser — your music never leaves your device.
-        </p>
       </motion.div>
     </motion.div>
   )

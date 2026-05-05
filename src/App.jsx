@@ -764,17 +764,25 @@ function App() {
           else setIsPlaying(false)
         }}
       />
-      {/* Top bar: logo mark + navigation + now-playing indicator */}
+      {/* Top bar: logo (left) · navigation (center) */}
       <header className="relative z-10 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center px-4 sm:px-8 gap-4">
-        {/* Logo mark */}
-        <div className="flex items-center gap-2 shrink-0">
-          <Music2 className="w-4 h-4 sm:w-5 sm:h-5 text-violet-400" />
-          <span
-            className="text-xs sm:text-sm font-semibold tracking-widest text-white/70 hidden sm:block"
-            style={{ fontFamily: "'Orbitron', system-ui, sans-serif" }}
-          >
-            LW
-          </span>
+        {/* Left cluster: logo mark + now-playing */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <Music2 className="w-4 h-4 sm:w-5 sm:h-5 text-violet-400" />
+            <span
+              className="text-xs sm:text-sm font-semibold tracking-widest text-white/70 hidden sm:block"
+              style={{ fontFamily: "'Orbitron', system-ui, sans-serif" }}
+            >
+              LW
+            </span>
+          </div>
+          {nowPlaying && (
+            <div className="hidden md:flex items-center gap-2 pl-3 border-l border-white/10 text-[11px] text-gray-500 min-w-0 max-w-[160px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0 animate-pulse" />
+              <span className="truncate">{nowPlaying.title || nowPlaying.fileName}</span>
+            </div>
+          )}
         </div>
 
         <nav className="flex-1 flex items-center justify-center gap-2 sm:gap-3">
@@ -798,16 +806,6 @@ function App() {
             </button>
           ))}
         </nav>
-
-        {/* Now-playing indicator (desktop only) */}
-        {nowPlaying ? (
-          <div className="hidden md:flex items-center gap-2 shrink-0 max-w-[180px] text-xs text-gray-500">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0 animate-pulse" />
-            <span className="truncate">{nowPlaying.title || nowPlaying.fileName}</span>
-          </div>
-        ) : (
-          <div className="hidden md:block w-[180px] shrink-0" />
-        )}
       </header>
 
       {/* Main Content Area */}
@@ -1331,13 +1329,20 @@ function App() {
           </p>
           {showNowPlayingAddMenu && nowPlaying && (
             <div className="absolute z-30 right-0 bottom-[calc(100%+0.35rem)] w-52 max-h-[min(50vh,280px)] overflow-y-auto rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1">
-              <button type="button" onClick={() => { toggleLovedSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex flex-nowrap items-center gap-2 whitespace-nowrap"><Heart className="w-4 h-4 shrink-0" /><span className="truncate">{lovedSongIds.includes(nowPlaying.id) ? 'Unlove song' : 'Love song'}</span></button>
+              <button type="button" onClick={() => { toggleLovedSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full rounded-lg hover:bg-white/10 px-3 py-2">
+                <div className="flex items-center gap-2 text-sm text-gray-200 whitespace-nowrap">
+                  <Heart className="w-4 h-4 shrink-0" fill={lovedSongIds.includes(nowPlaying.id) ? 'currentColor' : 'none'} />
+                  <span>{lovedSongIds.includes(nowPlaying.id) ? 'Unlove song' : 'Love song'}</span>
+                </div>
+              </button>
               {playlists.map((pl) => (
-                <button key={pl.id} type="button" onClick={() => { setPlaylists((prev) => prev.map((item) => item.id === pl.id && !item.songIds.includes(nowPlaying.id) ? { ...item, songIds: [...item.songIds, nowPlaying.id] } : item)); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-xs text-gray-300 whitespace-nowrap truncate">
-                  Add to {pl.name}
+                <button key={pl.id} type="button" onClick={() => { setPlaylists((prev) => prev.map((item) => item.id === pl.id && !item.songIds.includes(nowPlaying.id) ? { ...item, songIds: [...item.songIds, nowPlaying.id] } : item)); setShowNowPlayingAddMenu(false) }} className="w-full rounded-lg hover:bg-white/10 px-3 py-2 text-left">
+                  <span className="text-xs text-gray-300 whitespace-nowrap truncate block">Add to {pl.name}</span>
                 </button>
               ))}
-              <button type="button" onClick={() => { createPlaylistWithSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-xs text-cyan-200 whitespace-nowrap">Create playlist & add</button>
+              <button type="button" onClick={() => { createPlaylistWithSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }} className="w-full rounded-lg hover:bg-white/10 px-3 py-2 text-left">
+                <span className="text-xs text-cyan-300 whitespace-nowrap">+ Create playlist &amp; add</span>
+              </button>
             </div>
           )}
         </div>
@@ -1480,9 +1485,24 @@ function App() {
                 transition={{ duration: 0.2, ease: 'easeOut' }}
                 className="absolute right-0 bottom-[calc(100%+0.5rem)] w-56 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1 z-30"
               >
-                <button type="button" onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex flex-nowrap items-center gap-2.5 whitespace-nowrap"><UserCircle2 className="w-4 h-4 shrink-0" /><span className="truncate">Account</span></button>
-                <button type="button" onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex flex-nowrap items-center gap-2.5 whitespace-nowrap"><Info className="w-4 h-4 shrink-0" /><span className="truncate">About us</span></button>
-                <button type="button" onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 text-sm text-gray-200 flex flex-nowrap items-center gap-2.5 whitespace-nowrap"><History className="w-4 h-4 shrink-0" /><span className="truncate">Listening history</span></button>
+                <button type="button" onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }} className="w-full rounded-lg hover:bg-white/10 px-3 py-2">
+                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
+                    <UserCircle2 className="w-4 h-4 shrink-0 text-gray-400" />
+                    <span>Account</span>
+                  </div>
+                </button>
+                <button type="button" onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }} className="w-full rounded-lg hover:bg-white/10 px-3 py-2">
+                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
+                    <Info className="w-4 h-4 shrink-0 text-gray-400" />
+                    <span>About us</span>
+                  </div>
+                </button>
+                <button type="button" onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }} className="w-full rounded-lg hover:bg-white/10 px-3 py-2">
+                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
+                    <History className="w-4 h-4 shrink-0 text-gray-400" />
+                    <span>Listening history</span>
+                  </div>
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
