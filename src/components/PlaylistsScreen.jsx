@@ -29,7 +29,13 @@ function PlaylistsScreen({ playlists, onCreatePlaylist, onSelectPlaylist }) {
 
       <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm p-4 sm:p-5 glass-card overflow-auto">
         {playlists.length === 0 ? (
-          <p className="text-xs text-gray-500">No playlists yet. Use + to create your first playlist.</p>
+          <div className="flex flex-col items-center justify-center h-full gap-3 py-16">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-700/40 to-fuchsia-500/30 flex items-center justify-center">
+              <Music2 className="w-7 h-7 text-violet-300/80" />
+            </div>
+            <p className="text-sm text-gray-400">No playlists yet.</p>
+            <p className="text-xs text-gray-600">Click the + button above to create your first playlist.</p>
+          </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5">
             {playlists.map((pl) => (
@@ -39,7 +45,7 @@ function PlaylistsScreen({ playlists, onCreatePlaylist, onSelectPlaylist }) {
                 onClick={() => onSelectPlaylist(pl.id)}
                 className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1 transition-all duration-200 hover:bg-white/[0.04]"
               >
-                <div className="w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center shadow-inner">
+                <div className={`w-full aspect-square rounded-xl overflow-hidden flex items-center justify-center shadow-inner ${pl.coverUrl ? 'bg-white/[0.06]' : 'bg-gradient-to-br from-violet-700/40 to-fuchsia-500/30'}`}>
                   {pl.coverUrl ? (
                     <img src={pl.coverUrl} alt="" className="w-full h-full object-cover" />
                   ) : (

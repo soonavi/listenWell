@@ -22,6 +22,7 @@ function SongsScreen({
   onUploadMore,
   onCoverUpload,
   onMetadataChange,
+  onDeleteSong,
   onParallaxMove,
   onParallaxLeave,
 }) {
@@ -139,6 +140,7 @@ function SongsScreen({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="ui-input relative z-10 w-full rounded-full pl-11 pr-20 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+              placeholder="Search by title, artist, or album…"
               aria-label="Search songs"
             />
             {normalizedQuery ? (
@@ -149,7 +151,11 @@ function SongsScreen({
               >
                 Clear
               </button>
-            ) : null}
+            ) : (
+              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden sm:flex items-center pointer-events-none select-none px-1.5 py-0.5 rounded border border-white/12 bg-white/5 text-[11px] text-gray-600 font-mono">
+                /
+              </kbd>
+            )}
           </label>
         </div>
 
@@ -186,9 +192,12 @@ function SongsScreen({
                 }
                 const i = songs.findIndex((s) => s.id === song.id)
                 return (
-                <motion.button key={song.id} type="button" onClick={() => onSelectSong(i)} className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'} ${i === currentTrackIndex ? 'opacity-100' : ''}`} whileHover={{ y: -4, scale: 1.03 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+                <motion.button key={song.id} type="button" onClick={() => onSelectSong(i)} className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'}`} whileHover={{ y: -4, scale: 1.03 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
                   <div className="relative w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center text-3xl shadow-inner">
                     {song.coverUrl ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" /> : <Music2 className="w-10 h-10 text-white/60" />}
+                    {currentTrackIndex === i && isPlaying && (
+                      <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-green-400 shadow-lg shadow-green-400/50 animate-pulse" />
+                    )}
                     <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
                       <button type="button" onClick={(e) => { e.stopPropagation(); onPlaySongClick(i) }} className="w-12 h-12 rounded-full bg-white/90 text-black flex items-center justify-center shadow-lg hover:scale-105 transition">
                         {currentTrackIndex === i && isPlaying ? <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg> : <svg className="w-6 h-6 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>}
@@ -231,6 +240,15 @@ function SongsScreen({
               <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Album</label><input type="text" value={selectedSong.album} onChange={(e) => onMetadataChange('album', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Album name" /></div>
               <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Description / notes</label><textarea value={selectedSong.description} onChange={(e) => onMetadataChange('description', e.target.value)} rows={3} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white resize-none" placeholder="Optional notes" /></div>
             </div>
+            {onDeleteSong && (
+              <button
+                type="button"
+                onClick={() => onDeleteSong(selectedSong.id)}
+                className="w-full text-center rounded-lg border border-red-500/20 text-red-400/70 text-xs py-1.5 hover:border-red-400/45 hover:bg-red-400/5 hover:text-red-300 transition mt-1"
+              >
+                Remove from library
+              </button>
+            )}
           </>
         ) : <p className="text-sm text-gray-500">Select a track to edit its details.</p>}
       </section>
