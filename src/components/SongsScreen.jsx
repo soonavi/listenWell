@@ -198,7 +198,7 @@ function SongsScreen({
                       </div>
                       <input
                         type="file"
-                        accept="audio/*"
+                        accept="audio/*,video/webm,video/ogg,.webm,.ogg,.opus"
                         multiple
                         className="hidden"
                         onChange={onUploadMore}

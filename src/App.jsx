@@ -430,7 +430,7 @@ function App() {
 
   const processAudioFiles = useCallback(async (fileList) => {
     const files = Array.from(fileList || [])
-    const audioFiles = files.filter((f) => f.type.startsWith('audio/'))
+    const audioFiles = files.filter((f) => f.type.startsWith('audio/') || f.type === 'video/webm' || f.type === 'video/ogg' || f.name.match(/\.(webm|ogg|opus|m4a)$/i))
     if (audioFiles.length === 0) return
 
     const newSongs = await Promise.all(
