@@ -104,42 +104,58 @@ function SongsScreen({
     <>
       <section className="flex-1 flex flex-col overflow-hidden min-w-0">
         <div className="mb-3 sm:mb-4 flex flex-wrap items-center justify-center gap-2 sm:gap-3 song-toolbar rounded-2xl border border-white/10 px-3 py-2.5 sm:px-4 sm:py-3">
-          <div className="relative">
-            <select
-              value={songFilter}
-              onChange={(e) => onChangeSongFilter(e.target.value)}
-              className="ui-pill song-toolbar-select appearance-none pr-8 pl-3 py-1.5 text-xs sm:text-sm focus-visible:ring-2 focus-visible:ring-violet-400/70"
-              aria-label="Song filter"
+          {/* Filter pill group */}
+          <div className="flex rounded-full border border-white/12 overflow-hidden text-[11px] sm:text-xs bg-white/[0.02]">
+            <button
+              type="button"
+              onClick={() => onChangeSongFilter('all')}
+              className={`px-3 py-1.5 transition-colors duration-150 ${songFilter === 'all' ? 'bg-violet-600/80 text-white' : 'text-gray-400 hover:text-gray-200'}`}
             >
-              <option value="all">All songs</option>
-              <option value="loved">Loved songs</option>
-            </select>
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-300">▾</span>
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeSongFilter('loved')}
+              className={`px-3 py-1.5 transition-colors duration-150 flex items-center gap-1 ${songFilter === 'loved' ? 'bg-pink-600/70 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              <Heart className="w-3 h-3" fill={songFilter === 'loved' ? 'currentColor' : 'none'} />
+              Loved
+            </button>
           </div>
 
-          <div className="relative">
-            <select value={sortBy} onChange={(e) => onChangeSortBy(e.target.value)} className="ui-pill song-toolbar-select appearance-none pr-8 pl-3 py-1.5 text-xs sm:text-sm focus-visible:ring-2 focus-visible:ring-violet-400/70">
-              <option value="default">Sort: Default</option>
-              <option value="title">Sort: Title</option>
-              <option value="artist">Sort: Artist</option>
-            </select>
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs">▾</span>
+          {/* Sort pill group */}
+          <div className="flex rounded-full border border-white/12 overflow-hidden text-[11px] sm:text-xs bg-white/[0.02]">
+            {[
+              { id: 'default', label: 'Default' },
+              { id: 'title', label: 'Title' },
+              { id: 'artist', label: 'Artist' },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onChangeSortBy(opt.id)}
+                className={`px-3 py-1.5 transition-colors duration-150 ${sortBy === opt.id ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
 
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.03] px-3 py-1.5 text-[11px] sm:text-xs text-gray-200">
-            <Heart className={`w-3.5 h-3.5 ${songFilter === 'loved' ? 'text-pink-400' : 'text-gray-400'}`} fill={songFilter === 'loved' ? 'currentColor' : 'none'} />
-            {songFilter === 'loved' ? `${visibleSongs.length} loved tracks` : `${visibleSongs.length} tracks`}
+          {/* Track count */}
+          <div className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-gray-500">
+            <Heart className={`w-3 h-3 ${songFilter === 'loved' ? 'text-pink-400' : 'text-gray-600'}`} fill={songFilter === 'loved' ? 'currentColor' : 'none'} />
+            {visibleSongs.length} {songFilter === 'loved' ? 'loved ' : ''}track{visibleSongs.length !== 1 ? 's' : ''}
           </div>
         </div>
         <div className="relative mb-3 sm:mb-4 flex justify-center">
-          <label className="relative block w-full sm:max-w-md md:max-w-lg">
-            <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-0" />
+          <div className="relative w-full sm:max-w-md md:max-w-lg">
+            <Search className="w-4 h-4 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="ui-input relative z-10 w-full rounded-full pl-11 pr-20 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+              className="ui-input w-full rounded-full pl-11 pr-24 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
               placeholder="Search by title, artist, or album…"
               aria-label="Search songs"
             />
@@ -156,7 +172,7 @@ function SongsScreen({
                 /
               </kbd>
             )}
-          </label>
+          </div>
         </div>
 
         {visibleSongs.length === 0 ? (
