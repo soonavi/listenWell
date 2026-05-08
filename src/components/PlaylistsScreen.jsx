@@ -3,25 +3,27 @@ import { Music2, Plus, ImagePlus, Play } from 'lucide-react'
 // eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion'
 
-function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist }) {
+function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist, accentPresets = [] }) {
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [coverUrl, setCoverUrl] = useState(null)
   const [coverName, setCoverName] = useState('')
+  const [selectedAccent, setSelectedAccent] = useState(null)
 
   const reset = () => {
     setName('')
     setDescription('')
     setCoverUrl(null)
     setCoverName('')
+    setSelectedAccent(null)
   }
 
   const handleSubmit = (e) => {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) return
-    onCreatePlaylist({ name: trimmed, description: description.trim(), coverUrl })
+    onCreatePlaylist({ name: trimmed, description: description.trim(), coverUrl, accentColor: selectedAccent })
     reset()
     setShowCreate(false)
   }
@@ -59,7 +61,10 @@ function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist 
                 onClick={() => onSelectPlaylist(pl.id)}
                 className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1 transition-all duration-200 hover:bg-white/[0.04]"
               >
-                <div className={`relative w-full aspect-square rounded-xl overflow-hidden flex items-center justify-center shadow-inner ${pl.coverUrl ? 'bg-white/[0.06]' : 'bg-gradient-to-br from-violet-700/40 to-fuchsia-500/30'}`}>
+                <div
+                  className={`relative w-full aspect-square rounded-xl overflow-hidden flex items-center justify-center shadow-inner ${pl.coverUrl ? 'bg-white/[0.06]' : ''}`}
+                  style={!pl.coverUrl ? { background: pl.accentColor ? `linear-gradient(135deg, ${pl.accentColor}66, ${pl.accentColor}22)` : 'linear-gradient(135deg, rgba(109,40,217,0.4), rgba(217,70,239,0.3))' } : {}}
+                >
                   {pl.coverUrl
                     ? <img src={pl.coverUrl} alt="" className="w-full h-full object-cover" />
                     : <Music2 className="w-10 h-10 text-violet-300/80" />
@@ -139,6 +144,27 @@ function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist 
                 </label>
               </div>
 
+              {accentPresets.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs text-gray-500">Accent colour</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {accentPresets.map((preset) => (
+                      <button
+                        key={preset.hex}
+                        type="button"
+                        title={preset.label}
+                        onClick={() => setSelectedAccent(selectedAccent === preset.hex ? null : preset.hex)}
+                        className="w-6 h-6 rounded-full transition-transform hover:scale-110 shrink-0"
+                        style={{
+                          background: preset.hex,
+                          outline: selectedAccent === preset.hex ? `2px solid ${preset.hex}` : '2px solid transparent',
+                          outlineOffset: '2px',
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
               <input
                 type="text"
                 value={name}

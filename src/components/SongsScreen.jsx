@@ -16,6 +16,7 @@ function SongsScreen({
   onAddSongQuick,
   onToggleLoved,
   lovedSongIds,
+  playCounts = {},
   onSelectSong,
   onPlaySongClick,
   onGoToUpload,
@@ -60,8 +61,10 @@ function SongsScreen({
     .sort((a, b) => {
       if (sortBy === 'title') return (a.title || a.fileName).localeCompare(b.title || b.fileName)
       if (sortBy === 'artist') return (a.artist || '').localeCompare(b.artist || '')
+      if (sortBy === 'most-played') return (playCounts[b.id] || 0) - (playCounts[a.id] || 0)
+      if (sortBy === 'discover') return (playCounts[a.id] || 0) - (playCounts[b.id] || 0)
       return 0
-    }), [songs, songFilter, lovedSongIds, normalizedQuery, sortBy])
+    }), [songs, songFilter, lovedSongIds, normalizedQuery, sortBy, playCounts])
 
   useEffect(() => {
     const viewport = gridViewportRef.current
@@ -135,6 +138,8 @@ function SongsScreen({
                 { id: 'default', label: 'Default' },
                 { id: 'title', label: 'Title' },
                 { id: 'artist', label: 'Artist' },
+                { id: 'most-played', label: 'Most played' },
+                { id: 'discover', label: 'Discover' },
               ].map((opt, i) => (
                 <button
                   key={opt.id}
@@ -256,11 +261,36 @@ function SongsScreen({
                 <label className="inline-flex items-center gap-2 cursor-pointer text-violet-400 hover:text-violet-300 text-xs font-medium">Change cover<input type="file" accept="image/*" className="hidden" onChange={onCoverUpload} /></label>
               </div>
             </div>
+            {/* BPM + play count chips */}
+            {(selectedSong.bpm || playCounts[selectedSong.id]) ? (
+              <div className="flex gap-2 flex-wrap">
+                {selectedSong.bpm && (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/25 text-[11px] text-violet-300">
+                    {Math.round(selectedSong.bpm)} BPM
+                  </span>
+                )}
+                {playCounts[selectedSong.id] ? (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-[11px] text-gray-400">
+                    {playCounts[selectedSong.id]} {playCounts[selectedSong.id] === 1 ? 'play' : 'plays'}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <div className="flex flex-col gap-3 text-sm">
               <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Title</label><input type="text" value={selectedSong.title} onChange={(e) => onMetadataChange('title', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Song title" /></div>
               <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Artist</label><input type="text" value={selectedSong.artist} onChange={(e) => onMetadataChange('artist', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Artist name" /></div>
               <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Album</label><input type="text" value={selectedSong.album} onChange={(e) => onMetadataChange('album', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Album name" /></div>
-              <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Description / notes</label><textarea value={selectedSong.description} onChange={(e) => onMetadataChange('description', e.target.value)} rows={3} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white resize-none" placeholder="Optional notes" /></div>
+              <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Description / notes</label><textarea value={selectedSong.description} onChange={(e) => onMetadataChange('description', e.target.value)} rows={2} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white resize-none" placeholder="Optional notes" /></div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500 font-medium">Lyrics</label>
+                <textarea
+                  value={selectedSong.lyrics || ''}
+                  onChange={(e) => onMetadataChange('lyrics', e.target.value)}
+                  rows={4}
+                  className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-xs text-white resize-none font-mono"
+                  placeholder={"Paste plain or LRC lyrics here…\n[00:15.00] First line\n[00:20.50] Second line"}
+                />
+              </div>
             </div>
             {onDeleteSong && (
               <button
