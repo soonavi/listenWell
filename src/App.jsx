@@ -939,9 +939,12 @@ function App() {
             </span>
           </div>
           {nowPlaying && (
-            <div className="hidden md:flex items-center gap-2 pl-6 border-l border-white/10 text-[11px] text-gray-500 min-w-0 max-w-[160px]">
+            <div className="hidden md:flex items-center gap-2 pl-6 text-xs text-gray-300 min-w-0 max-w-[220px]">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0 animate-pulse" />
-              <span className="truncate">{nowPlaying.title || nowPlaying.fileName}</span>
+              <span className="truncate">
+                {nowPlaying.title || nowPlaying.fileName}
+                {nowPlaying.artist ? <span className="text-gray-500"> — {nowPlaying.artist}</span> : null}
+              </span>
             </div>
           )}
         </div>
