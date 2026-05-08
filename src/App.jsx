@@ -40,7 +40,7 @@ function formatTime(seconds) {
 }
 
 function clampPlaybackRate(rate) {
-  return rate > 1 ? 1 : rate
+  return Math.max(0.25, Math.min(3, rate))
 }
 
 function createSafeId(prefix = 'id') {
@@ -1180,18 +1180,19 @@ function App() {
             <div className="flex flex-col gap-3 text-xs text-gray-300">
               <div className="flex flex-col gap-1.5">
                 <div className="flex justify-between items-center">
-                  <span className="font-medium">Speed</span>
+                  <span className="font-medium">Playback speed</span>
                   <span className="tabular-nums text-cyan-300 font-semibold tracking-wide">
-                    {effectivePlaybackRate.toFixed(2)}x applied
+                    {effectivePlaybackRate.toFixed(2)}×
                   </span>
                 </div>
                 <input
-                  type="range" min={0.5} max={2} step={0.05} value={playbackRate}
+                  type="range" min={0.25} max={3} step={0.05} value={playbackRate}
+                  onInput={(e) => setPlaybackRate(Number(e.target.value))}
                   onChange={(e) => setPlaybackRate(Number(e.target.value))}
                   className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
                 />
                 <div className="flex justify-between text-[10px] text-gray-500">
-                  <span>0.5x</span><span>1x</span><span>2x</span>
+                  <span>0.25×</span><span>1×</span><span>3×</span>
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
