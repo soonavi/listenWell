@@ -939,7 +939,7 @@ function App() {
             </span>
           </div>
           {nowPlaying && (
-            <div className="hidden md:flex items-center gap-2 pl-4 border-l border-white/10 text-[11px] text-gray-500 min-w-0 max-w-[160px]">
+            <div className="hidden md:flex items-center gap-2 pl-6 border-l border-white/10 text-[11px] text-gray-500 min-w-0 max-w-[160px]">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0 animate-pulse" />
               <span className="truncate">{nowPlaying.title || nowPlaying.fileName}</span>
             </div>
@@ -1400,18 +1400,19 @@ function App() {
         <div className="cat-hanging" aria-hidden />
 
         {/* Album art — click to open NowPlaying overlay */}
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={nowPlaying ? 0 : -1}
           onClick={() => nowPlaying && setShowNowPlaying(true)}
-          style={{ display: 'flex', overflow: 'hidden', flexShrink: 0 }}
-          className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-white/[0.08] items-center justify-center text-2xl transition-transform ${nowPlaying ? 'hover:scale-105 cursor-pointer' : 'cursor-default'}`}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && nowPlaying && setShowNowPlaying(true)}
+          className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-white/[0.08] overflow-hidden shrink-0 flex items-center justify-center text-2xl transition-transform ${nowPlaying ? 'hover:scale-105 cursor-pointer' : 'cursor-default'}`}
           aria-label="Open now playing"
         >
           {nowPlaying?.coverUrl
             ? <img src={nowPlaying.coverUrl} alt="" className="w-full h-full object-cover" />
             : <Music2 className="w-8 h-8 text-violet-300/80" />
           }
-        </button>
+        </div>
 
         <div ref={nowPlayingMenuRef} className="w-40 sm:w-52 min-w-0 relative">
           <div className="flex items-center gap-2">
