@@ -1,0 +1,13 @@
+{
+  "name": "ListenWell",
+  "short_name": "ListenWell",
+  "description": "Your personal music player — upload, organise, and enjoy your library offline.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0c0e",
+  "theme_color": "#0c0c0e",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
