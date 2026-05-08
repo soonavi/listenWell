@@ -107,6 +107,7 @@ function PlaylistDetailScreen({
   onUpdatePlaylist,
   currentTrackIndex,
   isPlaying,
+  accentPresets = [],
 }) {
   const [addSearch, setAddSearch] = useState('')
 
@@ -197,6 +198,24 @@ function PlaylistDetailScreen({
                 Play all
               </button>
             </div>
+            {accentPresets.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+                {accentPresets.map((preset) => (
+                  <button
+                    key={preset.hex}
+                    type="button"
+                    title={preset.label}
+                    onClick={() => onUpdatePlaylist(playlist.id, { accentColor: playlist.accentColor === preset.hex ? null : preset.hex })}
+                    className="w-5 h-5 rounded-full transition-transform hover:scale-110 shrink-0"
+                    style={{
+                      background: preset.hex,
+                      outline: playlist.accentColor === preset.hex ? `2px solid ${preset.hex}` : '2px solid transparent',
+                      outlineOffset: '2px',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

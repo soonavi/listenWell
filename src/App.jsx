@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import './App.css'
+import { analyzeAudio } from './utils/audioAnalysis'
 import UploadScreen from './components/UploadScreen'
 import SongsScreen from './components/SongsScreen'
 import PlaylistsScreen from './components/PlaylistsScreen'
@@ -40,7 +41,7 @@ function formatTime(seconds) {
 }
 
 function clampPlaybackRate(rate) {
-  return rate > 1 ? 1 : rate
+  return Math.max(0.25, Math.min(3, rate))
 }
 
 function createSafeId(prefix = 'id') {
@@ -58,6 +59,18 @@ function stableSongId(fileName) {
   }
   return `s${(h >>> 0).toString(36)}`
 }
+
+// Playlist accent colour presets (hex → space-separated RGB for CSS var)
+const ACCENT_PRESETS = [
+  { hex: '#7c3aed', rgb: '124 58 237', label: 'Violet' },
+  { hex: '#2563eb', rgb: '37 99 235',  label: 'Blue' },
+  { hex: '#0891b2', rgb: '8 145 178',  label: 'Cyan' },
+  { hex: '#16a34a', rgb: '22 163 74',  label: 'Green' },
+  { hex: '#d97706', rgb: '217 119 6',  label: 'Amber' },
+  { hex: '#ea580c', rgb: '234 88 12',  label: 'Orange' },
+  { hex: '#dc2626', rgb: '220 38 38',  label: 'Red' },
+  { hex: '#db2777', rgb: '219 39 119', label: 'Pink' },
+]
 
 function safeGetStorage(key, fallback) {
   try {
@@ -201,9 +214,13 @@ function App() {
   const [showNowPlaying, setShowNowPlaying] = useState(false)
   const [showQueue, setShowQueue] = useState(false)
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
+  const [volumeNormalization, setVolumeNormalization] = useState(() => safeGetStorage('listenwell-vnorm', 'true') !== 'false')
+  const [playCounts, setPlayCounts] = useState(() => parseStoredJSON('listenwell-playcounts', {}))
+  const [playlistAccentOverride, setPlaylistAccentOverride] = useState(null)
   const audioRef = useRef(null)
   const audioContextRef = useRef(null)
   const sourceNodeRef = useRef(null)
+  const gainNodeRef = useRef(null)
   const bassFilterRef = useRef(null)
   const analyserRef = useRef(null)
   const visualizerDataRef = useRef(null)
@@ -237,6 +254,7 @@ function App() {
   const logoMenuRef = useRef(null)
   const nowPlayingMenuRef = useRef(null)
   const stateRef = useRef({})
+  const analyzeQueueRef = useRef([])
 
   const markSongHistory = useCallback((song) => {
     if (!song?.id) return
@@ -271,15 +289,18 @@ function App() {
     if (ctx.state === 'suspended') ctx.resume().catch(() => {})
     if (!sourceNodeRef.current) {
       const source = ctx.createMediaElementSource(audioEl)
+      const gain = ctx.createGain()
       const bass = ctx.createBiquadFilter()
       const analyser = ctx.createAnalyser()
       bass.type = 'lowshelf'
       bass.frequency.value = 200
       analyser.fftSize = 128
-      source.connect(bass)
+      source.connect(gain)
+      gain.connect(bass)
       bass.connect(analyser)
       analyser.connect(ctx.destination)
       sourceNodeRef.current = source
+      gainNodeRef.current = gain
       bassFilterRef.current = bass
       analyserRef.current = analyser
       visualizerDataRef.current = new Uint8Array(analyser.frequencyBinCount)
@@ -430,9 +451,10 @@ function App() {
 
   const processAudioFiles = useCallback(async (fileList) => {
     const files = Array.from(fileList || [])
-    const audioFiles = files.filter((f) => f.type.startsWith('audio/'))
+    const audioFiles = files.filter((f) => f.type.startsWith('audio/') || f.type === 'video/webm' || f.type === 'video/ogg' || f.name.match(/\.(webm|ogg|opus|m4a)$/i))
     if (audioFiles.length === 0) return
 
+    // Build basic song objects immediately (ID3 tags are fast)
     const newSongs = await Promise.all(
       audioFiles.map(async (f) => {
         const id = stableSongId(f.name)
@@ -444,9 +466,7 @@ function App() {
           try {
             const blob = new Blob([data], { type: format || 'image/jpeg' })
             coverUrl = URL.createObjectURL(blob)
-          } catch {
-            coverUrl = null
-          }
+          } catch { coverUrl = null }
         }
 
         return {
@@ -458,20 +478,35 @@ function App() {
           album: tags?.album || '',
           coverUrl,
           description: '',
+          lyrics: '',
+          gainDb: 0,
+          bpm: null,
+          _file: f, // temporary, removed after analysis
         }
       }),
     )
 
     setSongs((prev) => {
       const existingIds = new Set(prev.map((s) => s.id))
-      return [...prev, ...newSongs.filter((s) => !existingIds.has(s.id))]
+      const toAdd = newSongs.filter((s) => !existingIds.has(s.id))
+      // Strip the temporary _file field from state
+      return [...prev, ...toAdd.map(({ _file: _, ...rest }) => rest)]
     })
     setActivePage('songs')
     if (stateRef.current.currentTrackIndex == null && newSongs.length > 0) {
       setSelectedSongIndex(0)
       setCurrentTrackIndex(0)
     }
-  }, [])
+
+    // Background analysis: BPM + volume normalisation (non-blocking)
+    for (const song of newSongs) {
+      const f = song._file
+      if (!f) continue
+      analyzeAudio(f).then(({ gainDb, bpm }) => {
+        setSongs((prev) => prev.map((s) => s.id === song.id ? { ...s, gainDb, bpm } : s))
+      }).catch(() => {})
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUpload = (e) => {
     processAudioFiles(e.target.files || [])
@@ -517,8 +552,12 @@ function App() {
     setSelectedSongIndex(index)
     setCurrentTrackIndex(index)
     setIsPlaying(true)
-    markRecent('song', songs[index]?.id)
-    markSongHistory(songs[index])
+    const song = songs[index]
+    markRecent('song', song?.id)
+    markSongHistory(song)
+    if (song?.id) {
+      setPlayCounts((prev) => ({ ...prev, [song.id]: (prev[song.id] || 0) + 1 }))
+    }
     setTimeout(() => {
       if (!audioRef.current) return
       audioRef.current.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
@@ -577,6 +616,27 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-repeat', repeat) }, [repeat])
   useEffect(() => { safeSetStorage('listenwell-loved', JSON.stringify(lovedSongIds)) }, [lovedSongIds])
   useEffect(() => { safeSetStorage('listenwell-playlists', JSON.stringify(playlists)) }, [playlists])
+  useEffect(() => { safeSetStorage('listenwell-playcounts', JSON.stringify(playCounts)) }, [playCounts])
+  useEffect(() => { safeSetStorage('listenwell-vnorm', String(volumeNormalization)) }, [volumeNormalization])
+
+  // Apply per-song gain normalisation whenever the track changes
+  useEffect(() => {
+    if (!gainNodeRef.current) return
+    const song = songs[currentTrackIndex]
+    const db = volumeNormalization && song?.gainDb ? song.gainDb : 0
+    gainNodeRef.current.gain.value = Math.min(4, Math.max(0.25, Math.pow(10, db / 20)))
+  }, [currentTrackIndex, volumeNormalization, songs])
+
+  // Override accent with playlist colour when on playlist-detail page
+  useEffect(() => {
+    if (activePage === 'playlist-detail' && selectedPlaylistId) {
+      const pl = playlists.find((p) => p.id === selectedPlaylistId)
+      const preset = ACCENT_PRESETS.find((c) => c.hex === pl?.accentColor)
+      setPlaylistAccentOverride(preset?.rgb || null)
+    } else {
+      setPlaylistAccentOverride(null)
+    }
+  }, [activePage, selectedPlaylistId, playlists])
 
   useEffect(() => {
     extractAccentFromCover(nowPlaying?.coverUrl)
@@ -803,7 +863,7 @@ function App() {
       data-theme={theme}
       className="relative flex flex-col min-h-screen w-full bg-[#0c0c0e] text-gray-100 overflow-hidden"
       style={{
-        '--accent-rgb': accentColor,
+        '--accent-rgb': playlistAccentOverride || accentColor,
         '--shimmer-low': shimmer.low,
         '--shimmer-mid': shimmer.mid,
         '--shimmer-high': shimmer.high,
@@ -993,6 +1053,7 @@ function App() {
                 songFilter={songFilter}
                 sortBy={songSortBy}
                 lovedSongIds={lovedSongIds}
+                playCounts={playCounts}
                 onChangeSongFilter={setSongFilter}
                 onChangeSortBy={setSongSortBy}
                 onToggleLoved={toggleLovedSong}
@@ -1036,13 +1097,14 @@ function App() {
                 playlists={playlists}
                 songs={songs}
                 selectedPlaylistId={selectedPlaylistId}
-                onCreatePlaylist={({ name, description, coverUrl }) => {
+                accentPresets={ACCENT_PRESETS}
+                onCreatePlaylist={({ name, description, coverUrl, accentColor: ac }) => {
                   const trimmedName = name.trim()
                   if (!trimmedName) return
                   const id = createSafeId('playlist')
                   setPlaylists((prev) => [
                     ...prev,
-                    { id, name: trimmedName, description: description || '', coverUrl: coverUrl || null, songIds: [] },
+                    { id, name: trimmedName, description: description || '', coverUrl: coverUrl || null, accentColor: ac || null, songIds: [] },
                   ])
                   setSelectedPlaylistId(id)
                 }}
@@ -1092,6 +1154,7 @@ function App() {
                 songs={songs}
                 currentTrackIndex={currentTrackIndex}
                 isPlaying={isPlaying}
+                accentPresets={ACCENT_PRESETS}
                 onBack={() => setActivePage('playlists')}
                 onPlaySong={(songId) => {
                   const index = songs.findIndex((s) => s.id === songId)
@@ -1180,18 +1243,19 @@ function App() {
             <div className="flex flex-col gap-3 text-xs text-gray-300">
               <div className="flex flex-col gap-1.5">
                 <div className="flex justify-between items-center">
-                  <span className="font-medium">Speed</span>
+                  <span className="font-medium">Playback speed</span>
                   <span className="tabular-nums text-cyan-300 font-semibold tracking-wide">
-                    {effectivePlaybackRate.toFixed(2)}x applied
+                    {effectivePlaybackRate.toFixed(2)}×
                   </span>
                 </div>
                 <input
-                  type="range" min={0.5} max={2} step={0.05} value={playbackRate}
+                  type="range" min={0.25} max={3} step={0.05} value={playbackRate}
+                  onInput={(e) => setPlaybackRate(Number(e.target.value))}
                   onChange={(e) => setPlaybackRate(Number(e.target.value))}
                   className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
                 />
                 <div className="flex justify-between text-[10px] text-gray-500">
-                  <span>0.5x</span><span>1x</span><span>2x</span>
+                  <span>0.25×</span><span>1×</span><span>3×</span>
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
@@ -1212,6 +1276,16 @@ function App() {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Volume normalisation</span>
+                <button
+                  type="button"
+                  onClick={() => setVolumeNormalization((prev) => !prev)}
+                  className={`relative w-9 h-5 rounded-full transition-colors ${volumeNormalization ? 'bg-violet-600' : 'bg-white/20'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${volumeNormalization ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
               </div>
               <div className="flex flex-col gap-2">
                 <span className="font-medium">Neural Equalizer</span>
@@ -1671,6 +1745,11 @@ function App() {
             shuffle={shuffle}
             repeat={repeat}
             lovedSongIds={lovedSongIds}
+            lyrics={nowPlaying?.lyrics || ''}
+            onMetadataChange={(field, value) => {
+              if (currentTrackIndex != null)
+                setSongs((prev) => prev.map((s, i) => i === currentTrackIndex ? { ...s, [field]: value } : s))
+            }}
             onClose={() => setShowNowPlaying(false)}
             onPlayPause={handlePlayPause}
             onPrev={handlePrev}

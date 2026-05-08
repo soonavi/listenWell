@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion'
-import { Music2, Heart, Plus, Search, Sparkles } from 'lucide-react'
+import { Music2, Heart, Plus, Search } from 'lucide-react'
 
 function SongsScreen({
   songs,
@@ -16,6 +16,7 @@ function SongsScreen({
   onAddSongQuick,
   onToggleLoved,
   lovedSongIds,
+  playCounts = {},
   onSelectSong,
   onPlaySongClick,
   onGoToUpload,
@@ -60,8 +61,10 @@ function SongsScreen({
     .sort((a, b) => {
       if (sortBy === 'title') return (a.title || a.fileName).localeCompare(b.title || b.fileName)
       if (sortBy === 'artist') return (a.artist || '').localeCompare(b.artist || '')
+      if (sortBy === 'most-played') return (playCounts[b.id] || 0) - (playCounts[a.id] || 0)
+      if (sortBy === 'discover') return (playCounts[a.id] || 0) - (playCounts[b.id] || 0)
       return 0
-    }), [songs, songFilter, lovedSongIds, normalizedQuery, sortBy])
+    }), [songs, songFilter, lovedSongIds, normalizedQuery, sortBy, playCounts])
 
   useEffect(() => {
     const viewport = gridViewportRef.current
@@ -103,59 +106,67 @@ function SongsScreen({
   return (
     <>
       <section className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <div className="mb-3 sm:mb-4 flex flex-wrap items-center justify-center gap-2 sm:gap-3 song-toolbar rounded-2xl border border-white/10 px-3 py-2.5 sm:px-4 sm:py-3">
-          {/* Filter pill group */}
-          <div className="flex rounded-full border border-white/12 overflow-hidden text-[11px] sm:text-xs bg-white/[0.02]">
-            <button
-              type="button"
-              onClick={() => onChangeSongFilter('all')}
-              className={`px-3 py-1.5 transition-colors duration-150 ${songFilter === 'all' ? 'bg-violet-600/80 text-white' : 'text-gray-400 hover:text-gray-200'}`}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              onClick={() => onChangeSongFilter('loved')}
-              className={`px-3 py-1.5 transition-colors duration-150 flex items-center gap-1 ${songFilter === 'loved' ? 'bg-pink-600/70 text-white' : 'text-gray-400 hover:text-gray-200'}`}
-            >
-              <Heart className="w-3 h-3" fill={songFilter === 'loved' ? 'currentColor' : 'none'} />
-              Loved
-            </button>
-          </div>
-
-          {/* Sort pill group */}
-          <div className="flex rounded-full border border-white/12 overflow-hidden text-[11px] sm:text-xs bg-white/[0.02]">
-            {[
-              { id: 'default', label: 'Default' },
-              { id: 'title', label: 'Title' },
-              { id: 'artist', label: 'Artist' },
-            ].map((opt) => (
+        {/* Toolbar */}
+        <div className="mb-3 shrink-0 flex flex-col gap-2">
+          {/* Row 1: filter + sort + count */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Filter: All / Loved */}
+            <div className="flex rounded-full border border-white/10 overflow-hidden text-xs bg-white/[0.02] shrink-0">
               <button
-                key={opt.id}
                 type="button"
-                onClick={() => onChangeSortBy(opt.id)}
-                className={`px-3 py-1.5 transition-colors duration-150 ${sortBy === opt.id ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+                onClick={() => onChangeSongFilter('all')}
+                className={`px-3.5 py-1.5 transition-colors duration-150 ${songFilter === 'all' ? 'bg-violet-600/80 text-white' : 'text-gray-400 hover:text-gray-200'}`}
               >
-                {opt.label}
+                All
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => onChangeSongFilter('loved')}
+                className={`px-3.5 py-1.5 border-l border-white/10 transition-colors duration-150 flex items-center gap-1.5 ${songFilter === 'loved' ? 'bg-pink-600/70 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+              >
+                <Heart className="w-3 h-3" fill={songFilter === 'loved' ? 'currentColor' : 'none'} />
+                Loved
+              </button>
+            </div>
+
+            {/* Divider */}
+            <span className="w-px h-4 bg-white/10 shrink-0" />
+
+            {/* Sort */}
+            <div className="flex rounded-full border border-white/10 overflow-hidden text-xs bg-white/[0.02] shrink-0">
+              {[
+                { id: 'default', label: 'Default' },
+                { id: 'title', label: 'Title' },
+                { id: 'artist', label: 'Artist' },
+                { id: 'most-played', label: 'Most played' },
+                { id: 'discover', label: 'Discover' },
+              ].map((opt, i) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => onChangeSortBy(opt.id)}
+                  className={`px-3.5 py-1.5 transition-colors duration-150 ${i > 0 ? 'border-l border-white/10' : ''} ${sortBy === opt.id ? 'bg-white/12 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Track count — pushed to the right */}
+            <span className="ml-auto text-xs text-gray-600 tabular-nums whitespace-nowrap shrink-0">
+              {visibleSongs.length} {songFilter === 'loved' ? 'loved ' : ''}track{visibleSongs.length !== 1 ? 's' : ''}
+            </span>
           </div>
 
-          {/* Track count */}
-          <div className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-gray-500">
-            <Heart className={`w-3 h-3 ${songFilter === 'loved' ? 'text-pink-400' : 'text-gray-600'}`} fill={songFilter === 'loved' ? 'currentColor' : 'none'} />
-            {visibleSongs.length} {songFilter === 'loved' ? 'loved ' : ''}track{visibleSongs.length !== 1 ? 's' : ''}
-          </div>
-        </div>
-        <div className="relative mb-3 sm:mb-4 flex justify-center">
-          <div className="relative w-full sm:max-w-md md:max-w-lg">
+          {/* Row 2: search */}
+          <div className="relative">
             <Search className="w-4 h-4 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="ui-input w-full rounded-full pl-11 pr-24 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+              className="ui-input w-full rounded-full pl-11 pr-20 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
               placeholder="Search by title, artist, or album…"
               aria-label="Search songs"
             />
@@ -177,7 +188,7 @@ function SongsScreen({
 
         {visibleSongs.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-sm text-gray-500 gap-3">
-            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center text-violet-300"><Sparkles className="w-6 h-6" /></span>
+            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center text-violet-300/70"><Music2 className="w-6 h-6" /></span>
             <p>{normalizedQuery ? 'No songs match your search.' : songFilter === 'loved' ? 'No loved songs yet.' : 'No songs yet.'}</p>
             <button type="button" onClick={onGoToUpload} className="px-4 py-2 rounded-full bg-white text-black text-xs font-medium hover:bg-gray-100 transition">Upload music</button>
           </div>
@@ -198,7 +209,7 @@ function SongsScreen({
                       </div>
                       <input
                         type="file"
-                        accept="audio/*"
+                        accept="audio/*,video/webm,video/ogg,.webm,.ogg,.opus"
                         multiple
                         className="hidden"
                         onChange={onUploadMore}
@@ -250,11 +261,36 @@ function SongsScreen({
                 <label className="inline-flex items-center gap-2 cursor-pointer text-violet-400 hover:text-violet-300 text-xs font-medium">Change cover<input type="file" accept="image/*" className="hidden" onChange={onCoverUpload} /></label>
               </div>
             </div>
+            {/* BPM + play count chips */}
+            {(selectedSong.bpm || playCounts[selectedSong.id]) ? (
+              <div className="flex gap-2 flex-wrap">
+                {selectedSong.bpm && (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/25 text-[11px] text-violet-300">
+                    {Math.round(selectedSong.bpm)} BPM
+                  </span>
+                )}
+                {playCounts[selectedSong.id] ? (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-[11px] text-gray-400">
+                    {playCounts[selectedSong.id]} {playCounts[selectedSong.id] === 1 ? 'play' : 'plays'}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <div className="flex flex-col gap-3 text-sm">
               <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Title</label><input type="text" value={selectedSong.title} onChange={(e) => onMetadataChange('title', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Song title" /></div>
               <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Artist</label><input type="text" value={selectedSong.artist} onChange={(e) => onMetadataChange('artist', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Artist name" /></div>
               <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Album</label><input type="text" value={selectedSong.album} onChange={(e) => onMetadataChange('album', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="Album name" /></div>
-              <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Description / notes</label><textarea value={selectedSong.description} onChange={(e) => onMetadataChange('description', e.target.value)} rows={3} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white resize-none" placeholder="Optional notes" /></div>
+              <div className="flex flex-col gap-1"><label className="text-xs text-gray-500 font-medium">Description / notes</label><textarea value={selectedSong.description} onChange={(e) => onMetadataChange('description', e.target.value)} rows={2} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-sm text-white resize-none" placeholder="Optional notes" /></div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500 font-medium">Lyrics</label>
+                <textarea
+                  value={selectedSong.lyrics || ''}
+                  onChange={(e) => onMetadataChange('lyrics', e.target.value)}
+                  rows={4}
+                  className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-xs text-white resize-none font-mono"
+                  placeholder={"Paste plain or LRC lyrics here…\n[00:15.00] First line\n[00:20.50] Second line"}
+                />
+              </div>
             </div>
             {onDeleteSong && (
               <button
