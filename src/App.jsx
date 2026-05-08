@@ -242,7 +242,15 @@ function App() {
   const [showAccountDrawer, setShowAccountDrawer] = useState(false)
   const [showLogoMenu, setShowLogoMenu] = useState(false)
   const [showAboutModal, setShowAboutModal] = useState(false)
+  const [aboutModalPos, setAboutModalPos] = useState({ x: 0, y: 0 })
+  const [isDraggingAbout, setIsDraggingAbout] = useState(false)
+  const aboutModalRef = useRef(null)
+  const aboutDragOffsetRef = useRef({ x: 0, y: 0 })
   const [showListeningHistoryModal, setShowListeningHistoryModal] = useState(false)
+  const [historyModalPos, setHistoryModalPos] = useState({ x: 0, y: 0 })
+  const [isDraggingHistory, setIsDraggingHistory] = useState(false)
+  const historyModalRef = useRef(null)
+  const historyDragOffsetRef = useRef({ x: 0, y: 0 })
   const [listeningHistory, setListeningHistory] = useState([])
   const [savedPresets, setSavedPresets] = useState(() => parseStoredJSON('listenwell-presets', []))
   const [auroraIntensity, setAuroraIntensity] = useState(() => Number(safeGetStorage('listenwell-aurora-intensity', '0.75')))
@@ -711,6 +719,30 @@ function App() {
     window.addEventListener('mouseup', onUp)
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
   }, [isDraggingSettings])
+
+  useEffect(() => {
+    if (!isDraggingAbout) return
+    const onMove = (e) => setAboutModalPos({
+      x: Math.max(0, Math.min(window.innerWidth - 560, e.clientX - aboutDragOffsetRef.current.x)),
+      y: Math.max(0, Math.min(window.innerHeight - 180, e.clientY - aboutDragOffsetRef.current.y)),
+    })
+    const onUp = () => setIsDraggingAbout(false)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [isDraggingAbout])
+
+  useEffect(() => {
+    if (!isDraggingHistory) return
+    const onMove = (e) => setHistoryModalPos({
+      x: Math.max(0, Math.min(window.innerWidth - 520, e.clientX - historyDragOffsetRef.current.x)),
+      y: Math.max(0, Math.min(window.innerHeight - 300, e.clientY - historyDragOffsetRef.current.y)),
+    })
+    const onUp = () => setIsDraggingHistory(false)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [isDraggingHistory])
 
   useEffect(() => {
     if (isPlaying) {
@@ -1249,9 +1281,16 @@ function App() {
                   </span>
                 </div>
                 <input
-                  type="range" min={0.25} max={3} step={0.05} value={playbackRate}
-                  onInput={(e) => setPlaybackRate(Number(e.target.value))}
-                  onChange={(e) => setPlaybackRate(Number(e.target.value))}
+                  type="range" min={0} max={1} step={0.005}
+                  value={playbackRate <= 1 ? (playbackRate - 0.25) / 0.75 * 0.5 : 0.5 + (playbackRate - 1) / 4}
+                  onInput={(e) => {
+                    const n = Number(e.target.value)
+                    setPlaybackRate(n <= 0.5 ? 0.25 + n * 1.5 : 1 + (n - 0.5) * 4)
+                  }}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    setPlaybackRate(n <= 0.5 ? 0.25 + n * 1.5 : 1 + (n - 0.5) * 4)
+                  }}
                   className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
                 />
                 <div className="flex justify-between text-[10px] text-gray-500">
@@ -1599,7 +1638,11 @@ function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setShowAboutModal(true); setShowLogoMenu(false) }}
+                  onClick={() => {
+                    setAboutModalPos({ x: Math.max(0, window.innerWidth / 2 - 280), y: Math.max(0, window.innerHeight / 2 - 110) })
+                    setShowAboutModal(true)
+                    setShowLogoMenu(false)
+                  }}
                   className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
                 >
                   <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
@@ -1609,7 +1652,11 @@ function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setShowListeningHistoryModal(true); setShowLogoMenu(false) }}
+                  onClick={() => {
+                    setHistoryModalPos({ x: Math.max(0, window.innerWidth / 2 - 260), y: Math.max(0, window.innerHeight / 2 - 180) })
+                    setShowListeningHistoryModal(true)
+                    setShowLogoMenu(false)
+                  }}
                   className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
                 >
                   <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
@@ -1626,62 +1673,68 @@ function App() {
       {/* Modals */}
       <AnimatePresence>
         {showAboutModal && (
-          <>
-            <motion.button
-              type="button"
-              onClick={() => setShowAboutModal(false)}
-              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            />
-            <motion.div
-              initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }}
-              className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(92vw,560px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 shadow-2xl glass-card"
+          <motion.div
+            ref={aboutModalRef}
+            initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
+            transition={{ duration: 0.18 }}
+            className="fixed z-50 w-[min(92vw,560px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 shadow-2xl glass-card"
+            style={{ left: aboutModalPos.x, top: aboutModalPos.y }}
+          >
+            <div
+              className="flex items-center justify-between mb-3 cursor-grab active:cursor-grabbing select-none"
+              onMouseDown={(e) => {
+                if (!aboutModalRef.current) return
+                const rect = aboutModalRef.current.getBoundingClientRect()
+                aboutDragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+                setIsDraggingAbout(true)
+              }}
             >
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-cyan-200">About ListenWell</h3>
-                <button type="button" onClick={() => setShowAboutModal(false)} className="text-xs text-gray-400 hover:text-white">Close</button>
-              </div>
-              <p className="text-sm text-gray-200 leading-relaxed">
-                ListenWell was built out of a simple frustration — why pay a monthly fee just to listen to music you already have? I&apos;m a student who believes your music should be yours, fully and without conditions. No algorithms deciding what you hear next. No subscriptions. No data harvesting. Just your library, the way you want it.
-              </p>
-              <p className="text-sm text-gray-400 mt-3">— Ben Krause</p>
-            </motion.div>
-          </>
+              <h3 className="text-base font-semibold text-cyan-200">About ListenWell</h3>
+              <button type="button" onClick={() => setShowAboutModal(false)} className="text-xs text-gray-400 hover:text-white">Close</button>
+            </div>
+            <p className="text-sm text-gray-200 leading-relaxed">
+              ListenWell was built out of a simple frustration — why pay a monthly fee just to listen to music you already have? I&apos;m a student who believes your music should be yours, fully and without conditions. No algorithms deciding what you hear next. No subscriptions. No data harvesting. Just your library, the way you want it.
+            </p>
+            <p className="text-sm text-gray-400 mt-3">— Ben Krause</p>
+          </motion.div>
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {showListeningHistoryModal && (
-          <>
-            <motion.button
-              type="button"
-              onClick={() => setShowListeningHistoryModal(false)}
-              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            />
-            <motion.div
-              initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }}
-              className="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(92vw,520px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 shadow-2xl glass-card"
+          <motion.div
+            ref={historyModalRef}
+            initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
+            transition={{ duration: 0.18 }}
+            className="fixed z-50 w-[min(92vw,520px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 shadow-2xl glass-card"
+            style={{ left: historyModalPos.x, top: historyModalPos.y }}
+          >
+            <div
+              className="flex items-center justify-between mb-3 cursor-grab active:cursor-grabbing select-none"
+              onMouseDown={(e) => {
+                if (!historyModalRef.current) return
+                const rect = historyModalRef.current.getBoundingClientRect()
+                historyDragOffsetRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+                setIsDraggingHistory(true)
+              }}
             >
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-cyan-200">Listening history</h3>
-                <button type="button" onClick={() => setShowListeningHistoryModal(false)} className="text-xs text-gray-400 hover:text-white">Close</button>
-              </div>
-              <div className="max-h-[55vh] overflow-auto pr-1">
-                {listeningHistory.length === 0 ? (
-                  <p className="text-sm text-gray-400">No songs listened to yet.</p>
-                ) : (
-                  <ol className="space-y-2">
-                    {listeningHistory.map((entry, index) => (
-                      <li key={`${entry.id}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-gray-200">
-                        {entry.title}
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </div>
-            </motion.div>
-          </>
+              <h3 className="text-base font-semibold text-cyan-200">Listening history</h3>
+              <button type="button" onClick={() => setShowListeningHistoryModal(false)} className="text-xs text-gray-400 hover:text-white">Close</button>
+            </div>
+            <div className="max-h-[55vh] overflow-auto pr-1">
+              {listeningHistory.length === 0 ? (
+                <p className="text-sm text-gray-400">No songs listened to yet.</p>
+              ) : (
+                <ol className="space-y-2">
+                  {listeningHistory.map((entry, index) => (
+                    <li key={`${entry.id}-${index}`} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-gray-200">
+                      {entry.title}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
