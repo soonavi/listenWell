@@ -1293,8 +1293,10 @@ function App() {
                   }}
                   className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] text-gray-500">
-                  <span>0.25×</span><span>1×</span><span>3×</span>
+                <div className="relative text-[10px] text-gray-500 h-3">
+                  <span className="absolute left-0">0.25×</span>
+                  <span className="absolute left-1/2 -translate-x-1/2">1×</span>
+                  <span className="absolute right-0">3×</span>
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">

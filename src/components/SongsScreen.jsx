@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion'
-import { Music2, Heart, Plus, Search, ChevronDown } from 'lucide-react'
+import { Music2, Heart, Plus, ChevronDown } from 'lucide-react'
 
 function SongsScreen({
   songs,
@@ -108,31 +108,12 @@ function SongsScreen({
       <section className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Toolbar */}
         <div className="mb-3 shrink-0 flex items-center gap-2">
-          {/* Filter pill */}
-          <div className="flex rounded-full border border-white/10 overflow-hidden text-xs bg-white/[0.02] shrink-0">
-            <button
-              type="button"
-              onClick={() => onChangeSongFilter('all')}
-              className={`px-3.5 py-1.5 transition-colors duration-150 ${songFilter === 'all' ? 'bg-violet-600/80 text-white' : 'text-gray-400 hover:text-gray-200'}`}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              onClick={() => onChangeSongFilter('loved')}
-              className={`px-3.5 py-1.5 border-l border-white/10 transition-colors duration-150 flex items-center gap-1.5 ${songFilter === 'loved' ? 'bg-pink-600/70 text-white' : 'text-gray-400 hover:text-gray-200'}`}
-            >
-              <Heart className="w-3 h-3" fill={songFilter === 'loved' ? 'currentColor' : 'none'} />
-              Loved
-            </button>
-          </div>
-
           {/* Sort dropdown */}
           <div className="relative shrink-0">
             <select
               value={sortBy}
               onChange={(e) => onChangeSortBy(e.target.value)}
-              className="appearance-none bg-white/[0.04] border border-white/10 text-gray-300 text-xs rounded-full pl-3.5 pr-8 py-1.5 focus:outline-none focus:border-violet-500/50 cursor-pointer hover:bg-white/[0.07] transition-colors"
+              className="sort-select appearance-none border border-white/10 text-gray-400 text-xs rounded-full pl-3.5 pr-7 py-1.5 focus:outline-none focus:border-violet-500/50 cursor-pointer transition-colors"
             >
               <option value="default">Default</option>
               <option value="title">Title</option>
@@ -140,22 +121,21 @@ function SongsScreen({
               <option value="most-played">Most played</option>
               <option value="discover">Discover</option>
             </select>
-            <ChevronDown className="w-3 h-3 text-gray-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <ChevronDown className="w-3 h-3 text-gray-600 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
-          {/* Search — flex-1 to fill remaining space */}
+          {/* Search */}
           <div className="relative flex-1 min-w-0">
-            <Search className="w-3.5 h-3.5 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="ui-input w-full rounded-full pl-9 pr-10 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+              className="ui-input w-full rounded-full px-4 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
               placeholder="Search…"
               aria-label="Search songs"
             />
-            {normalizedQuery ? (
+            {normalizedQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
@@ -163,16 +143,12 @@ function SongsScreen({
               >
                 ✕
               </button>
-            ) : (
-              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden sm:flex items-center pointer-events-none select-none px-1.5 py-0.5 rounded border border-white/12 bg-white/5 text-[10px] text-gray-600 font-mono">
-                /
-              </kbd>
             )}
           </div>
 
           {/* Track count */}
           <span className="text-xs text-gray-600 tabular-nums whitespace-nowrap shrink-0">
-            {visibleSongs.length} {songFilter === 'loved' ? 'loved ' : ''}track{visibleSongs.length !== 1 ? 's' : ''}
+            {visibleSongs.length} track{visibleSongs.length !== 1 ? 's' : ''}
           </span>
         </div>
 

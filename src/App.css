@@ -293,10 +293,17 @@ select.song-toolbar-select:focus-visible {
   background: rgb(255 255 255 / 0.07);
 }
 
-/* Sort dropdown options inherit a dark background so they stay readable */
-select option {
-  background: #0f1117;
-  color: rgb(229 231 235);
+/* Sort dropdown — explicit dark colors so the native OS widget matches the site */
+.sort-select {
+  background-color: rgb(255 255 255 / 0.04);
+  color-scheme: dark;
+}
+.sort-select:hover {
+  background-color: rgb(255 255 255 / 0.08);
+}
+.sort-select option {
+  background: #12141c;
+  color: rgb(209 213 219);
 }
 
 @media (prefers-reduced-motion: reduce) {
