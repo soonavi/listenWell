@@ -1490,6 +1490,42 @@ function App() {
                   </label>
                 ))}
               </div>
+              <div className="flex flex-col gap-2">
+                <span className="font-medium">Songs background</span>
+                <label className="flex items-center gap-2 cursor-pointer text-[11px] text-gray-400 hover:text-gray-200 transition-colors">
+                  <ImagePlus className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+                  <span>{songsBgUrl ? 'Change image' : 'Upload background image'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      setSongsBgUrl(URL.createObjectURL(file))
+                    }}
+                  />
+                </label>
+                {songsBgUrl && (
+                  <>
+                    <label className="text-[11px] text-gray-400 flex flex-col gap-1">
+                      Background blur
+                      <input
+                        type="range" min={0} max={20} step={0.5} value={songsBgBlur}
+                        onChange={(e) => setSongsBgBlur(Number(e.target.value))}
+                        className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-200"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setSongsBgUrl(null)}
+                      className="text-[11px] text-red-400 hover:text-red-300 text-left"
+                    >
+                      Remove background
+                    </button>
+                  </>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={saveCurrentPreset}
