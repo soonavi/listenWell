@@ -21,7 +21,8 @@ import {
   UserCircle2,
   Info,
   History,
-  ChevronUp,
+  ChevronDown,
+  ImagePlus,
   Plus,
   Heart,
   Shuffle,
@@ -228,7 +229,6 @@ function App() {
   const visualizerFrameRef = useRef(null)
   const visualizerCanvasRef = useRef(null)
   const [recentItems, setRecentItems] = useState([])
-  const [showLogoSymbol, setShowLogoSymbol] = useState(true)
   const [theme, setTheme] = useState(() => normalizeThemeId(safeGetStorage('listenwell-theme', 'dark')))
   const [accentColor, setAccentColor] = useState('139 92 246')
   const [shimmer, setShimmer] = useState({ low: 0, mid: 0, high: 0 })
@@ -242,6 +242,8 @@ function App() {
   const [eqBands, setEqBands] = useState(Array.from({ length: 12 }, () => 0.3))
   const [showAccountDrawer, setShowAccountDrawer] = useState(false)
   const [showLogoMenu, setShowLogoMenu] = useState(false)
+  const [songsBgUrl, setSongsBgUrl] = useState(null)
+  const [songsBgBlur, setSongsBgBlur] = useState(8)
   const [showAboutModal, setShowAboutModal] = useState(false)
   const [aboutModalPos, setAboutModalPos] = useState({ x: 0, y: 0 })
   const [isDraggingAbout, setIsDraggingAbout] = useState(false)
@@ -270,13 +272,6 @@ function App() {
     setListeningHistory((prev) =>
       [{ id: song.id, title: song.title || song.fileName || 'Untitled' }, ...prev].slice(0, 100),
     )
-  }, [])
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setShowLogoSymbol((prev) => !prev)
-    }, 2400)
-    return () => window.clearInterval(interval)
   }, [])
 
   const markRecent = (type, id) => {
@@ -951,13 +946,7 @@ function App() {
       <header className="relative z-10 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center px-4 sm:px-8 gap-4">
         <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
           <div className="flex items-center gap-2 shrink-0">
-            <Music2 className="w-4 h-4 sm:w-5 sm:h-5 text-violet-400" />
-            <span
-              className="text-xs sm:text-sm font-semibold tracking-widest text-white/70 hidden sm:block"
-              style={{ fontFamily: "'Orbitron', system-ui, sans-serif" }}
-            >
-              LW
-            </span>
+            <img src="/logo.svg" alt="listenWell" className="w-8 h-8 brightness-0 invert opacity-60" />
           </div>
           {nowPlaying && (
             <div className="hidden md:flex items-center gap-2 pl-6 text-xs text-gray-300 min-w-0 max-w-[220px]">
@@ -987,6 +976,76 @@ function App() {
             </button>
           ))}
         </nav>
+
+        {/* Logo button — right side of header */}
+        <div ref={logoMenuRef} className="ml-auto shrink-0 relative">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowLogoMenu((prev) => !prev)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                setShowLogoMenu((prev) => !prev)
+              }
+            }}
+            className="flex items-center gap-2 px-3 py-2 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition cursor-pointer"
+            aria-label="Menu"
+          >
+            <img src="/logo.svg" alt="listenWell" className="w-7 h-7 brightness-0 invert opacity-80" />
+            <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
+          </div>
+          <AnimatePresence>
+            {showLogoMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                transition={{ duration: 0.15, ease: 'easeOut' }}
+                className="absolute right-0 top-[calc(100%+0.5rem)] w-56 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1 z-30"
+              >
+                <button
+                  type="button"
+                  onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }}
+                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
+                    <UserCircle2 className="w-4 h-4 shrink-0 text-gray-400" />
+                    <span>Account</span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAboutModalPos({ x: Math.max(0, window.innerWidth / 2 - 280), y: Math.max(0, window.innerHeight / 2 - 110) })
+                    setShowAboutModal(true)
+                    setShowLogoMenu(false)
+                  }}
+                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
+                    <Info className="w-4 h-4 shrink-0 text-gray-400" />
+                    <span>About</span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHistoryModalPos({ x: Math.max(0, window.innerWidth / 2 - 260), y: Math.max(0, window.innerHeight / 2 - 180) })
+                    setShowListeningHistoryModal(true)
+                    setShowLogoMenu(false)
+                  }}
+                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
+                    <History className="w-4 h-4 shrink-0 text-gray-400" />
+                    <span>Listening history</span>
+                  </div>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </header>
 
       {/* Main Content Area */}
@@ -1093,13 +1152,26 @@ function App() {
           {activePage === 'songs' && (
             <motion.div
               key="songs"
-              className="flex-1 flex"
+              className="flex-1 flex relative"
               variants={pageTransition}
               initial="initial"
               animate="animate"
               exit="exit"
               transition={{ duration: 0.35, ease: 'easeOut' }}
             >
+            {songsBgUrl && (
+              <div
+                aria-hidden
+                className="absolute inset-0 z-[-1] overflow-hidden rounded-2xl"
+                style={{
+                  backgroundImage: `url(${songsBgUrl})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  filter: `blur(${songsBgBlur}px)`,
+                  transform: 'scale(1.08)',
+                }}
+              />
+            )}
               <SongsScreen
                 songs={songs}
                 selectedSongIndex={selectedSongIndex}
@@ -1616,97 +1688,6 @@ function App() {
           <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
         </button>
 
-        {/* listenWell logo + account button */}
-        <div ref={logoMenuRef} className="ml-3 sm:ml-4 flex-1 min-w-0 max-w-lg flex flex-col items-end justify-center relative h-full min-h-[88px]">
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => setShowLogoMenu((prev) => !prev)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                setShowLogoMenu((prev) => !prev)
-              }
-            }}
-            className="flex flex-col items-center justify-center w-full h-full min-h-[96px] rounded-2xl bg-white/7 border border-white/12 hover:bg-white/12 hover:border-white/25 transition text-center py-4 px-8 gap-3 cursor-pointer"
-          >
-            <div className="flex items-center justify-center gap-3 sm:gap-4">
-              <span className="w-7 h-7 sm:w-9 sm:h-9 inline-flex items-center justify-center">
-                <AnimatePresence mode="wait">
-                  {showLogoSymbol && (
-                    <motion.span
-                      key="logo-symbol"
-                      initial={{ opacity: 0, scale: 0.7, y: 6 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.7, y: -6 }}
-                      transition={{ duration: 0.3, ease: 'easeInOut' }}
-                    >
-                      <Music2 className="w-7 h-7 sm:w-9 sm:h-9 text-violet-400" />
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </span>
-              <span
-                className="text-2xl sm:text-3xl font-semibold tracking-[0.18em] uppercase text-white block"
-                style={{ fontFamily: "'Orbitron', system-ui, sans-serif" }}
-              >
-                listenWell
-              </span>
-              <ChevronUp className={`w-4 h-4 text-gray-300 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
-            </div>
-          </div>
-
-          <AnimatePresence>
-            {showLogoMenu && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                transition={{ duration: 0.2, ease: 'easeOut' }}
-                className="absolute right-0 bottom-[calc(100%+0.5rem)] w-56 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1 z-30"
-              >
-                <button
-                  type="button"
-                  onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }}
-                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
-                >
-                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
-                    <UserCircle2 className="w-4 h-4 shrink-0 text-gray-400" />
-                    <span>Account</span>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAboutModalPos({ x: Math.max(0, window.innerWidth / 2 - 280), y: Math.max(0, window.innerHeight / 2 - 110) })
-                    setShowAboutModal(true)
-                    setShowLogoMenu(false)
-                  }}
-                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
-                >
-                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
-                    <Info className="w-4 h-4 shrink-0 text-gray-400" />
-                    <span>About us</span>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHistoryModalPos({ x: Math.max(0, window.innerWidth / 2 - 260), y: Math.max(0, window.innerHeight / 2 - 180) })
-                    setShowListeningHistoryModal(true)
-                    setShowLogoMenu(false)
-                  }}
-                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
-                >
-                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
-                    <History className="w-4 h-4 shrink-0 text-gray-400" />
-                    <span>Listening history</span>
-                  </div>
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
       </footer>
 
       {/* Modals */}
