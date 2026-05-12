@@ -144,7 +144,7 @@ function NowPlayingOverlay({
           >
             {song?.coverUrl
               ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" />
-              : <Music2 className="w-24 h-24 text-violet-300/50" />
+              : <img src="/logo.svg" alt="Listenwell" className="w-20 h-20 brightness-0 invert opacity-20" />
             }
           </motion.div>
 

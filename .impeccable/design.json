@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-12T00:00:00Z",
+  "title": "Design System: Listenwell",
+  "extensions": {
+    "colorMeta": {
+      "bg-base":       { "role": "neutral",   "displayName": "Void Base",       "canonical": "oklch(8% 0.006 270)",  "tonalRamp": ["#060608","#0c0c0e","#111116","#16161c","#1c1c24","#22222c","#2a2a36","#333344"] },
+      "accent-violet": { "role": "primary",   "displayName": "Archive Violet",  "canonical": "oklch(55% 0.23 290)", "tonalRamp": ["#1a0a2e","#2d1060","#4a1880","#6d2eb5","#8b5cf6","#a78bfa","#c4b5fd","#ddd6fe"] },
+      "accent-cyan":   { "role": "secondary", "displayName": "Signal Cyan",     "canonical": "oklch(80% 0.15 200)", "tonalRamp": ["#0a2535","#0e3d55","#0b5f7a","#0891b2","#06b6d4","#22d3ee","#67e8f9","#a5f3fc"] },
+      "text-primary":  { "role": "neutral",   "displayName": "Near-White",      "canonical": "oklch(97% 0.003 270)", "tonalRamp": ["#374151","#4b5563","#6b7280","#9ca3af","#d1d5db","#e5e7eb","#f3f4f6","#f9fafb"] },
+      "text-secondary":{ "role": "neutral",   "displayName": "Secondary Text",  "canonical": "oklch(93% 0.004 270)", "tonalRamp": ["#374151","#4b5563","#6b7280","#9ca3af","#d1d5db","#e5e7eb","#f3f4f6","#f9fafb"] },
+      "text-muted":    { "role": "neutral",   "displayName": "Muted Slate",     "canonical": "oklch(52% 0.006 270)", "tonalRamp": ["#1f2937","#374151","#4b5563","#6b7280","#9ca3af","#d1d5db","#e5e7eb","#f3f4f6"] },
+      "surface-glass": { "role": "neutral",   "displayName": "Glass Surface",   "canonical": "oklch(100% 0 0 / 0.08)", "tonalRamp": ["#ffffff02","#ffffff04","#ffffff06","#ffffff08","#ffffff0d","#ffffff14","#ffffff1f","#ffffff33"] }
+    },
+    "typographyMeta": {
+      "display":  { "displayName": "Archive Display",  "purpose": "Section identity. One per screen. Always Orbitron, always uppercase, always tracked." },
+      "headline": { "displayName": "Panel Headline",   "purpose": "Sub-section labels and panel headers. Orbitron medium." },
+      "title":    { "displayName": "Content Title",    "purpose": "Song titles in now-playing. Space Grotesk semibold." },
+      "body":     { "displayName": "Body",             "purpose": "Metadata, artist names, secondary labels. Space Grotesk regular." },
+      "label":    { "displayName": "Label",            "purpose": "Filter pills, timestamps, control labels. Space Grotesk medium, slightly tracked." }
+    },
+    "shadows": [
+      { "name": "glass-panel",    "value": "0 12px 48px rgb(8 9 14 / 0.35), 0 0 36px rgb(139 92 246 / 0.14), inset 0 0 0 1px rgb(255 255 255 / 0.05)", "purpose": "Floating panels: settings, queue, overlays. 3-layer: ambient dark + violet glow + inner border." },
+      { "name": "song-tile-hover","value": "0 8px 24px rgb(10 10 12 / 0.35)", "purpose": "Song tile hover state. Paired with violet border shift." },
+      { "name": "album-art",      "value": "0 28px 80px rgba(0,0,0,0.65)", "purpose": "Album art in now-playing overlay. Deep directional grounding." },
+      { "name": "magnetic-hover", "value": "0 0 24px rgb(139 92 246 / 0.2)", "purpose": "Interactive thumbnail hover. Glow radius driven by --glow-softness." },
+      { "name": "glow-pulse",     "value": "0 0 30px rgb(255 255 255 / 0.25), 0 0 50px rgb(139 92 246 / 0.45)", "purpose": "Pulsing animation on active playback indicator. 2.2s ease-in-out loop." }
+    ],
+    "motion": [
+      { "name": "ease-out-expo",   "value": "cubic-bezier(0.16, 1, 0.3, 1)",   "purpose": "Entrance animations and panel slides. 280–400ms." },
+      { "name": "ease-state",      "value": "ease",                              "purpose": "Short state transitions (border, background). 160ms." },
+      { "name": "aurora-float",    "value": "16s ease-in-out infinite",          "purpose": "Aurora blob drift. translate3d + scale. Disabled by prefers-reduced-motion." },
+      { "name": "ease-out-linear", "value": "cubic-bezier(0.2, 0.8, 0.2, 1)",  "purpose": "Neural visualizer bar height transitions. 220ms." }
+    ],
+    "breakpoints": [
+      { "name": "sm",  "value": "640px" },
+      { "name": "md",  "value": "768px" },
+      { "name": "lg",  "value": "1024px" },
+      { "name": "xl",  "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Default action button. Violet-tinted glass border; the border glows before the fill floods.",
+      "html": "<button class=\"ds-btn-primary\">Upload files</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 16px; border-radius: 10px; border: 1px solid rgb(139 92 246 / 0.68); background: rgb(139 92 246 / 0.14); color: #ede9fe; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; line-height: 1.4; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease; } .ds-btn-primary:hover { border-color: rgb(167 139 250 / 0.85); background: rgb(139 92 246 / 0.24); } .ds-btn-primary:active { transform: scale(0.97); } .ds-btn-primary:focus-visible { outline: 2px solid rgb(139 92 246 / 0.8); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Low-hierarchy action. Near-invisible at rest; border brightens on hover.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 16px; border-radius: 10px; border: 1px solid rgb(255 255 255 / 0.18); background: rgb(255 255 255 / 0.03); color: #e5e7eb; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; line-height: 1.4; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease; } .ds-btn-secondary:hover { border-color: rgb(255 255 255 / 0.40); background: rgb(255 255 255 / 0.07); } .ds-btn-secondary:focus-visible { outline: 2px solid rgb(139 92 246 / 0.8); outline-offset: 2px; }"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Search field. Translucent at rest; violet glow ring on focus. / key focuses it.",
+      "html": "<div class=\"ds-input-wrapper\"><svg class=\"ds-input-icon\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.35-4.35\"/></svg><input class=\"ds-input\" type=\"text\" placeholder=\"Search your library\" /></div>",
+      "css": ".ds-input-wrapper { position: relative; display: flex; align-items: center; } .ds-input-icon { position: absolute; left: 10px; color: #6b7280; pointer-events: none; flex-shrink: 0; } .ds-input { width: 100%; padding: 8px 12px 8px 30px; border-radius: 10px; border: 1px solid rgb(255 255 255 / 0.12); background: rgb(255 255 255 / 0.05); color: #f3f4f6; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.875rem; line-height: 1.4; } .ds-input::placeholder { color: #6b7280; } .ds-input:focus-visible { outline: none; border-color: rgb(139 92 246 / 0.55); box-shadow: 0 0 0 2px rgb(139 92 246 / 0.22); }"
+    },
+    {
+      "name": "Filter Pill",
+      "kind": "chip",
+      "refersTo": "pill",
+      "description": "Filter tag. Used for song list filters (All, Loved, Recently Played). Fully rounded.",
+      "html": "<div class=\"ds-pill-group\"><button class=\"ds-pill ds-pill--active\">All</button><button class=\"ds-pill\">Loved</button><button class=\"ds-pill\">Recent</button></div>",
+      "css": ".ds-pill-group { display: flex; gap: 6px; } .ds-pill { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px; border: 1px solid rgb(255 255 255 / 0.16); background: rgb(255 255 255 / 0.05); color: #f3f4f6; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.75rem; font-weight: 500; letter-spacing: 0.04em; cursor: pointer; transition: border-color 160ms ease, background-color 160ms ease; } .ds-pill:hover { border-color: rgb(255 255 255 / 0.30); background: rgb(255 255 255 / 0.09); } .ds-pill--active { border-color: rgb(139 92 246 / 0.60); background: rgb(139 92 246 / 0.12); color: #ede9fe; } .ds-pill:focus-visible { outline: 2px solid rgb(139 92 246 / 0.8); outline-offset: 2px; }"
+    },
+    {
+      "name": "Song Tile",
+      "kind": "card",
+      "refersTo": "song-tile",
+      "description": "Individual song row. Flat at rest; violet border glow on hover. Currently playing state has persistent border.",
+      "html": "<div class=\"ds-song-tile\"><div class=\"ds-song-tile__art\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M9 18V5l12-2v13\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><circle cx=\"18\" cy=\"16\" r=\"3\"/></svg></div><div class=\"ds-song-tile__info\"><span class=\"ds-song-tile__title\">Song Title</span><span class=\"ds-song-tile__meta\">Artist &middot; 3:42</span></div></div>",
+      "css": ".ds-song-tile { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 6px; border: 1px solid rgb(255 255 255 / 0.05); background: transparent; cursor: pointer; transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease; } .ds-song-tile:hover { border-color: rgb(139 92 246 / 0.35); background: rgb(139 92 246 / 0.06); box-shadow: 0 8px 24px rgb(10 10 12 / 0.35); } .ds-song-tile__art { width: 40px; height: 40px; border-radius: 4px; background: rgb(255 255 255 / 0.07); display: flex; align-items: center; justify-content: center; color: rgb(139 92 246 / 0.5); flex-shrink: 0; } .ds-song-tile__info { display: flex; flex-direction: column; gap: 2px; min-width: 0; } .ds-song-tile__title { font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; color: #f3f4f6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-song-tile__meta { font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.75rem; font-weight: 400; color: #6b7280; }"
+    },
+    {
+      "name": "Glass Panel",
+      "kind": "card",
+      "refersTo": "button-primary",
+      "description": "Floating panel surface. Used for settings, queue panel, modals. Backdrop blur + 3-layer shadow.",
+      "html": "<div class=\"ds-glass-panel\"><p class=\"ds-glass-panel__label\">Settings</p></div>",
+      "css": ".ds-glass-panel { padding: 20px; border-radius: 16px; background: linear-gradient(145deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.02)); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 12px 48px rgb(8 9 14 / 0.35), 0 0 36px rgb(139 92 246 / 0.14), inset 0 0 0 1px rgb(255 255 255 / 0.05); } .ds-glass-panel__label { font-family: 'Orbitron', system-ui, sans-serif; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: #f3f4f6; }"
+    },
+    {
+      "name": "Upload Zone",
+      "kind": "custom",
+      "refersTo": "upload-zone",
+      "description": "Drag-and-drop file upload target. Violet accent activates on drag.",
+      "html": "<label class=\"ds-upload-zone\"><div class=\"ds-upload-zone__icon\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" y1=\"3\" x2=\"12\" y2=\"15\"/></svg></div><p class=\"ds-upload-zone__text\">Drop files here or click to browse</p><p class=\"ds-upload-zone__sub\">MP3, FLAC, WAV, AAC and more</p></label>",
+      "css": ".ds-upload-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 56px 32px; border-radius: 16px; border: 1px solid rgb(255 255 255 / 0.10); background: rgb(255 255 255 / 0.03); cursor: pointer; transition: border-color 150ms ease, background-color 150ms ease; } .ds-upload-zone:hover { border-color: rgb(255 255 255 / 0.20); background: rgb(255 255 255 / 0.05); } .ds-upload-zone__icon { width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgb(255 255 255 / 0.15); display: flex; align-items: center; justify-content: center; color: #6b7280; } .ds-upload-zone__text { font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.875rem; color: #d1d5db; } .ds-upload-zone__sub { font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.75rem; color: #6b7280; }"
+    },
+    {
+      "name": "Section Label",
+      "kind": "custom",
+      "refersTo": "button-primary",
+      "description": "Orbitron section header. Used for screen titles and panel labels.",
+      "html": "<h2 class=\"ds-section-label\">Your Library</h2>",
+      "css": ".ds-section-label { font-family: 'Orbitron', system-ui, sans-serif; font-size: 1.125rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: #f3f4f6; line-height: 1.2; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Frequency Archive",
+    "overview": "The interface is an instrument room inside a private archive: surfaces barely present, light arriving only from the signal. Nothing decorates for decoration's sake. Violet is the frequency readout — the active marker, the focus ring, the border on the element asking for your attention. Cyan appears where the violet signal resonates, a harmonic overtone. The two colors together are not a palette choice; they are a physics fact about how those frequencies relate.\n\nThe system is dark because the listener is focused. Someone who has chosen to leave streaming platforms and upload their own files is not a casual user — they are deliberate. The interface matches that: no warm editorial surfaces, no \"made for you\" nudges, no rounded friendly shapes that imply a service is doing something for you. The library belongs to the user. The interface holds it without comment.\n\nGlass surfaces appear only where they carry architectural meaning: the settings panel floating above content, the queue panel sliding in from outside the main surface, the now-playing overlay taking over the entire screen. Glass is structure, not decoration.",
+    "keyCharacteristics": [
+      "Near-void base (#0c0c0e) with fractional white surfaces (2-8% opacity)",
+      "Violet as frequency marker; cyan as harmonic resonance — neither is used as fill color",
+      "Orbitron for structural labels and section identity; Space Grotesk for everything human",
+      "Glow expresses elevation and state before movement does",
+      "Aurora visualizer reacts to audio frequency data; all motion respects prefers-reduced-motion",
+      "Fully controllable: aurora intensity, glow softness, blur amount, accent color, theme"
+    ],
+    "rules": [
+      { "name": "The One Frequency Rule",    "body": "Violet appears as a solid color on ≤15% of any given screen. Its power comes from scarcity and glow spread. Reserve solid violet fills for active borders and primary button tints; let the glow radius do the visual work.",                    "section": "colors" },
+      { "name": "The Tonal Void Rule",       "body": "The base is #0c0c0e, not #000000. Never render pure black or pure white. Every neutral carries the archive's cold undertone.",                                                                                                    "section": "colors" },
+      { "name": "The Harmonic Pair Rule",    "body": "Cyan appears only alongside violet, never alone. It is an overtone, not a second accent. If violet is absent from a surface, cyan must be absent too.",                                                                         "section": "colors" },
+      { "name": "The Two-Voice Rule",        "body": "Orbitron speaks for the archive's structure. Space Grotesk speaks for the music and the user. They do not cross over.",                                                                                                        "section": "typography" },
+      { "name": "The Uppercase Contract",    "body": "Orbitron is always uppercase with letter-spacing ≥ 0.12em. Lowercase Orbitron breaks the typographic logic of the system entirely.",                                                                                           "section": "typography" },
+      { "name": "The Glow-as-Elevation Rule","body": "Depth is glow, not darkness. Black shadows exist for ambient grounding; violet glow communicates interactive state and surface hierarchy.",                                                                                    "section": "elevation" },
+      { "name": "The Flat-by-Default Rule",  "body": "Every interactive surface is flat at rest. Glow and border shift appear only as state responses (hover, focus, active, playing). Static glow on a non-interactive surface is prohibited.",                                   "section": "elevation" }
+    ],
+    "dos": [
+      "Do use violet as glow and frequency marker. Let glow spread do the visual work, not solid fills.",
+      "Do use Orbitron uppercase with ≥ 0.12em letter-spacing for section headers and structural labels.",
+      "Do apply glass (backdrop-filter: blur(18px)) only on panels that architecturally float above the content plane.",
+      "Do honor prefers-reduced-motion. Every aurora blob, parallax card, and magnetic hover must have a static fallback.",
+      "Do keep all easing exponential ease-out: cubic-bezier(0.16, 1, 0.3, 1) or equivalent.",
+      "Do use rgb(var(--accent-rgb) / opacity) for any new interactive state that needs a violet glow."
+    ],
+    "donts": [
+      "Don't add warm editorial card layouts, rounded organic shapes, or For You / discovery sections.",
+      "Don't add any content curation affordance: trending rows, recommended playlists, algorithmic suggestions.",
+      "Don't use gradient text (background-clip: text with a gradient). Emphasis through weight or color, never gradient decoration.",
+      "Don't use border-left or border-right greater than 1px as a colored stripe accent on list items or song tiles.",
+      "Don't use violet as a large fill color. If a surface is predominantly violet, the frequency metaphor collapses.",
+      "Don't introduce bounce or elastic easing. The archive is precise; it does not wobble.",
+      "Don't apply glassmorphism decoratively. Every backdrop-filter must have an architectural reason.",
+      "Don't replicate Apple Music's editorial warmth: large editorial images, serif type, warm neutral backgrounds.",
+      "Don't use the hero-metric template: large number, small label, supporting stats, gradient accent."
+    ]
+  }
+}
