@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Music2, ArrowLeft, Play, ImagePlus, GripVertical, X, Search, Plus } from 'lucide-react'
+import { Music2, ArrowLeft, Play, ImagePlus, GripVertical, X, Search, Plus, Pencil } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -110,6 +110,9 @@ function PlaylistDetailScreen({
   accentPresets = [],
 }) {
   const [addSearch, setAddSearch] = useState('')
+  const [showEdit, setShowEdit] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -182,7 +185,17 @@ function PlaylistDetailScreen({
 
           <div className="min-w-0 flex-1">
             <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-0.5">Playlist</p>
-            <h1 className="text-xl font-bold text-white truncate leading-tight">{playlist.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-white truncate leading-tight">{playlist.name}</h1>
+              <button
+                type="button"
+                title="Edit playlist"
+                onClick={() => { setEditName(playlist.name); setEditDescription(playlist.description || ''); setShowEdit(true) }}
+                className="shrink-0 p-1.5 rounded-lg text-gray-600 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            </div>
             {playlist.description && (
               <p className="text-xs text-gray-500 truncate mt-0.5">{playlist.description}</p>
             )}
@@ -192,10 +205,12 @@ function PlaylistDetailScreen({
                 type="button"
                 onClick={() => playlistSongs[0] && onPlaySong(playlistSongs[0].id)}
                 disabled={playlistSongs.length === 0}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white text-black text-xs font-semibold hover:scale-105 transition-transform disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                className="px-4 py-1.5 rounded-full bg-white text-black text-xs font-semibold hover:scale-105 transition-transform disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
               >
-                <Play className="w-3.5 h-3.5 ml-0.5" fill="currentColor" />
-                Play all
+                <div className="flex items-center gap-1.5">
+                  <Play className="w-3.5 h-3.5 ml-0.5" fill="currentColor" />
+                  Play all
+                </div>
               </button>
             </div>
             {accentPresets.length > 0 && (
@@ -263,7 +278,7 @@ function PlaylistDetailScreen({
         </div>
 
         {/* Add songs panel */}
-        <div className="w-64 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col overflow-hidden glass-card shrink-0">
+        <div className="w-80 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col overflow-hidden glass-card shrink-0">
           <div className="px-4 py-3 border-b border-white/[0.06] shrink-0 space-y-2">
             <p className="text-[10px] uppercase tracking-widest text-gray-500">Add Songs</p>
             <div className="relative">
@@ -311,6 +326,43 @@ function PlaylistDetailScreen({
           </div>
         </div>
       </div>
+      {/* Edit playlist modal */}
+      {showEdit && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-2xl">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              const trimmed = editName.trim()
+              if (!trimmed) return
+              onUpdatePlaylist(playlist.id, { name: trimmed, description: editDescription.trim() })
+              setShowEdit(false)
+            }}
+            className="w-[min(92%,380px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 flex flex-col gap-4 glass-card"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Edit playlist</h3>
+              <button type="button" onClick={() => setShowEdit(false)} className="text-xs text-gray-500 hover:text-white transition-colors">Close</button>
+            </div>
+            <input
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="Playlist name"
+              className="ui-input rounded-lg px-3 py-2 text-sm w-full"
+            />
+            <textarea
+              rows={2}
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              placeholder="Description (optional)"
+              className="ui-input rounded-lg px-3 py-2 text-sm resize-none"
+            />
+            <button type="submit" className="ui-btn-primary px-3 py-2 text-sm font-medium text-center rounded-xl">
+              Save changes
+            </button>
+          </form>
+        </div>
+      )}
     </section>
   )
 }
