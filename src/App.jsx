@@ -217,6 +217,7 @@ function App() {
   const [volumeNormalization, setVolumeNormalization] = useState(() => safeGetStorage('listenwell-vnorm', 'true') !== 'false')
   const [playCounts, setPlayCounts] = useState(() => parseStoredJSON('listenwell-playcounts', {}))
   const [playlistAccentOverride, setPlaylistAccentOverride] = useState(null)
+  const [songQueue, setSongQueue] = useState([])
   const audioRef = useRef(null)
   const audioContextRef = useRef(null)
   const sourceNodeRef = useRef(null)
@@ -572,6 +573,10 @@ function App() {
     }, 0)
   }
 
+  const handleAddToQueue = useCallback((songId) => {
+    setSongQueue((prev) => prev.includes(songId) ? prev : [...prev, songId])
+  }, [])
+
   const currentTrackUrl = songs[currentTrackIndex]?.url ?? null
   const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
   const effectivePlaybackRate = clampPlaybackRate(playbackRate)
@@ -834,6 +839,22 @@ function App() {
   const handleNext = () => {
     if (songs.length === 0) return
     const { shuffle: sh, currentTrackIndex: cur, songs: ss } = stateRef.current
+    // Drain the manual queue first
+    if (songQueue.length > 0) {
+      const [nextId, ...rest] = songQueue
+      setSongQueue(rest)
+      const idx = ss.findIndex((s) => s.id === nextId)
+      if (idx !== -1) {
+        crossfade(() => {
+          setCurrentTrackIndex(idx)
+          setSelectedSongIndex(idx)
+          setIsPlaying(true)
+          markRecent('song', ss[idx]?.id)
+          markSongHistory(ss[idx])
+        })
+        return
+      }
+    }
     let next
     if (sh && ss.length > 1) {
       do { next = Math.floor(Math.random() * ss.length) } while (next === cur)
@@ -950,7 +971,7 @@ function App() {
         </div>
 
         {/* Nav — hidden on mobile, shown sm+ */}
-        <nav className="flex-1 hidden sm:flex items-center justify-center gap-2 sm:gap-3">
+        <nav className="absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-2 sm:gap-3">
           {NAV_TABS.map((tab) => (
             <button
               key={tab.id}
@@ -1112,6 +1133,17 @@ function App() {
                 onCoverUpload={handleCoverUpload}
                 onMetadataChange={handleMetadataChange}
                 onDeleteSong={handleDeleteSong}
+                onAddToQueue={handleAddToQueue}
+                onAddSongToPlaylist={(songId, playlistId) => {
+                  setPlaylists((prev) =>
+                    prev.map((pl) =>
+                      pl.id === playlistId && !pl.songIds.includes(songId)
+                        ? { ...pl, songIds: [...pl.songIds, songId] }
+                        : pl,
+                    ),
+                  )
+                }}
+                playlists={playlists}
                 onParallaxMove={handleParallaxMove}
                 onParallaxLeave={handleParallaxLeave}
               />
@@ -1436,13 +1468,13 @@ function App() {
             {nowPlaying?.artist || (nowPlaying ? 'Unknown artist' : '—')}
           </p>
           {showNowPlayingAddMenu && nowPlaying && (
-            <div className="absolute z-30 right-0 bottom-[calc(100%+0.35rem)] w-52 max-h-[min(50vh,280px)] overflow-y-auto rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1">
+            <div className="absolute z-30 right-0 bottom-[calc(100%+0.35rem)] w-72 max-h-[min(50vh,360px)] overflow-y-auto rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1">
               <button
                 type="button"
                 onClick={() => { toggleLovedSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }}
-                className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
+                className="w-full rounded-lg hover:bg-white/10 px-4 py-3"
               >
-                <div className="flex items-center gap-2 text-sm text-gray-200 whitespace-nowrap">
+                <div className="flex items-center gap-3 text-sm text-gray-200 whitespace-nowrap">
                   <Heart className="w-4 h-4 shrink-0" fill={lovedSongIds.includes(nowPlaying.id) ? 'currentColor' : 'none'} />
                   <span>{lovedSongIds.includes(nowPlaying.id) ? 'Unlove song' : 'Love song'}</span>
                 </div>
@@ -1461,17 +1493,17 @@ function App() {
                     )
                     setShowNowPlayingAddMenu(false)
                   }}
-                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2 text-left"
+                  className="w-full rounded-lg hover:bg-white/10 px-4 py-3 text-left"
                 >
-                  <span className="text-xs text-gray-300 whitespace-nowrap truncate block">Add to {pl.name}</span>
+                  <span className="text-sm text-gray-300 whitespace-nowrap truncate block">Add to {pl.name}</span>
                 </button>
               ))}
               <button
                 type="button"
                 onClick={() => { createPlaylistWithSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }}
-                className="w-full rounded-lg hover:bg-white/10 px-3 py-2 text-left"
+                className="w-full rounded-lg hover:bg-white/10 px-4 py-3 text-left"
               >
-                <span className="text-xs text-cyan-300 whitespace-nowrap">+ Create playlist &amp; add</span>
+                <span className="text-sm text-cyan-300 whitespace-nowrap">+ Create playlist &amp; add</span>
               </button>
             </div>
           )}

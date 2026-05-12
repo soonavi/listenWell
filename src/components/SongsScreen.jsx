@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion'
-import { Music2, Heart, Plus, ChevronDown } from 'lucide-react'
+import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic } from 'lucide-react'
 
 function SongsScreen({
   songs,
@@ -17,6 +17,9 @@ function SongsScreen({
   onToggleLoved,
   lovedSongIds,
   playCounts = {},
+  playlists = [],
+  onAddToQueue,
+  onAddSongToPlaylist,
   onSelectSong,
   onPlaySongClick,
   onGoToUpload,
@@ -31,6 +34,7 @@ function SongsScreen({
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(0)
+  const [contextMenu, setContextMenu] = useState(null) // { x, y, songId, songIndex }
   const searchInputRef = useRef(null)
   const gridViewportRef = useRef(null)
   const normalizedQuery = searchQuery.trim().toLowerCase()
@@ -48,6 +52,20 @@ function SongsScreen({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+
+  // Close context menu on any click/scroll
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('contextmenu', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('contextmenu', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [contextMenu])
 
   const visibleSongs = useMemo(() => [...songs]
     .filter((song) => (songFilter === 'loved' ? lovedSongIds.includes(song.id) : true))
@@ -69,20 +87,16 @@ function SongsScreen({
   useEffect(() => {
     const viewport = gridViewportRef.current
     if (!viewport) return
-
     const measure = () => {
       setViewportHeight(viewport.clientHeight || 0)
       setViewportWidth(viewport.clientWidth || 0)
     }
     measure()
-
     const onScroll = () => setScrollTop(viewport.scrollTop)
     viewport.addEventListener('scroll', onScroll)
-
     const resizeObserver = new ResizeObserver(measure)
     resizeObserver.observe(viewport)
     window.addEventListener('resize', measure)
-
     return () => {
       viewport.removeEventListener('scroll', onScroll)
       resizeObserver.disconnect()
@@ -102,6 +116,14 @@ function SongsScreen({
   const renderedItems = virtualItems.slice(startIndex, endIndex)
   const paddingTop = startRow * rowHeight
   const paddingBottom = Math.max(0, (rowCount - endRow - 1) * rowHeight)
+
+  const openContextMenu = (e, song, i) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const x = Math.min(e.clientX, window.innerWidth - 230)
+    const y = Math.min(e.clientY, window.innerHeight - 240)
+    setContextMenu({ x, y, songId: song.id, songIndex: i })
+  }
 
   return (
     <>
@@ -162,7 +184,7 @@ function SongsScreen({
           <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4 glass-card parallax-card song-grid-shell" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
             <div ref={gridViewportRef} className="h-full overflow-y-auto">
               <div style={{ paddingTop: `${paddingTop}px`, paddingBottom: `${paddingBottom}px` }}>
-                <div className="grid gap-4 sm:gap-5" style={{ gridTemplateColumns: `repeat(${virtualColumns}, minmax(0, 1fr))`, gap: `${virtualGap}px` }}>
+                <div className="grid" style={{ gridTemplateColumns: `repeat(${virtualColumns}, minmax(0, 1fr))`, gap: `${virtualGap}px` }}>
               {renderedItems.map((song) => {
                 if (song.uploadTile) {
                   return (
@@ -173,19 +195,21 @@ function SongsScreen({
                         </span>
                         <span className="text-xs">Upload song</span>
                       </div>
-                      <input
-                        type="file"
-                        accept="audio/*,video/webm,video/ogg,.webm,.ogg,.opus"
-                        multiple
-                        className="hidden"
-                        onChange={onUploadMore}
-                      />
+                      <input type="file" accept="audio/*,video/webm,video/ogg,.webm,.ogg,.opus" multiple className="hidden" onChange={onUploadMore} />
                     </label>
                   )
                 }
                 const i = songs.findIndex((s) => s.id === song.id)
                 return (
-                <motion.button key={song.id} type="button" onClick={() => onSelectSong(i)} className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'}`} whileHover={{ y: -4, scale: 1.03 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+                <motion.button
+                  key={song.id}
+                  type="button"
+                  onClick={() => onSelectSong(i)}
+                  onContextMenu={(e) => openContextMenu(e, song, i)}
+                  className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'}`}
+                  whileHover={{ y: -4, scale: 1.03 }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+                >
                   <div className="relative w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center text-3xl shadow-inner">
                     {song.coverUrl ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" /> : <Music2 className="w-10 h-10 text-white/60" />}
                     {currentTrackIndex === i && isPlaying && (
@@ -193,17 +217,22 @@ function SongsScreen({
                     )}
                     <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
                       <button type="button" onClick={(e) => { e.stopPropagation(); onPlaySongClick(i) }} className="w-12 h-12 rounded-full bg-white/90 text-black flex items-center justify-center shadow-lg hover:scale-105 transition">
-                        {currentTrackIndex === i && isPlaying ? <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg> : <svg className="w-6 h-6 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>}
+                        {currentTrackIndex === i && isPlaying
+                          ? <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                          : <svg className="w-6 h-6 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>}
                       </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <p className="text-sm font-medium truncate text-white/95 flex-1">{song.title || song.fileName}</p>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); onAddSongQuick(song.id) }} className="w-5 h-5 rounded-full border border-white/25 text-gray-200 inline-flex items-center justify-center"><Plus className="w-3 h-3" /></button>
-                  </div>
+                  <p className="text-sm font-medium truncate text-white/95">{song.title || song.fileName}</p>
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs text-gray-500 truncate">{song.artist || 'Unknown artist'}</p>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); onToggleLoved(song.id) }} className={`inline-flex ${lovedSongIds.includes(song.id) ? 'text-pink-400' : 'text-gray-500'}`}><Heart className="w-3.5 h-3.5" fill={lovedSongIds.includes(song.id) ? 'currentColor' : 'none'} /></button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onToggleLoved(song.id) }}
+                      className={`inline-flex shrink-0 p-0.5 ${lovedSongIds.includes(song.id) ? 'text-pink-400' : 'text-gray-600 hover:text-gray-400'}`}
+                    >
+                      <Heart className="w-5 h-5" fill={lovedSongIds.includes(song.id) ? 'currentColor' : 'none'} />
+                    </button>
                   </div>
                 </motion.button>
               )})}
@@ -227,7 +256,6 @@ function SongsScreen({
                 <label className="inline-flex items-center gap-2 cursor-pointer text-violet-400 hover:text-violet-300 text-xs font-medium">Change cover<input type="file" accept="image/*" className="hidden" onChange={onCoverUpload} /></label>
               </div>
             </div>
-            {/* BPM + play count chips */}
             {(selectedSong.bpm || playCounts[selectedSong.id]) ? (
               <div className="flex gap-2 flex-wrap">
                 {selectedSong.bpm && (
@@ -270,6 +298,50 @@ function SongsScreen({
           </>
         ) : <p className="text-sm text-gray-500">Select a track to edit its details.</p>}
       </section>
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-[400] min-w-[210px] rounded-xl border border-white/12 bg-[#0e1016]/96 backdrop-blur-xl shadow-2xl py-1.5 overflow-hidden"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => { onAddToQueue?.(contextMenu.songId); setContextMenu(null) }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-200 hover:bg-white/10 transition-colors text-left"
+          >
+            <ListPlus className="w-4 h-4 shrink-0 text-gray-400" />
+            Add to queue
+          </button>
+          {playlists.length > 0 && (
+            <>
+              <div className="h-px bg-white/10 my-1" />
+              <p className="px-4 py-1 text-[10px] uppercase tracking-widest text-gray-600">Add to playlist</p>
+              {playlists.map((pl) => (
+                <button
+                  key={pl.id}
+                  type="button"
+                  onClick={() => { onAddSongToPlaylist?.(contextMenu.songId, pl.id); setContextMenu(null) }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/10 transition-colors text-left"
+                >
+                  <ListMusic className="w-4 h-4 shrink-0 text-gray-500" />
+                  {pl.name}
+                </button>
+              ))}
+            </>
+          )}
+          <div className="h-px bg-white/10 my-1" />
+          <button
+            type="button"
+            onClick={() => { onDeleteSong?.(contextMenu.songId); setContextMenu(null) }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors text-left"
+          >
+            <Trash2 className="w-4 h-4 shrink-0" />
+            Remove track
+          </button>
+        </div>
+      )}
     </>
   )
 }
