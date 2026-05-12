@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion'
 import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic } from 'lucide-react'
+import { GooeyInput } from '@/components/ui/gooey-input'
 
 function SongsScreen({
   songs,
@@ -35,23 +36,8 @@ function SongsScreen({
   const [viewportHeight, setViewportHeight] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [contextMenu, setContextMenu] = useState(null) // { x, y, songId, songIndex }
-  const searchInputRef = useRef(null)
   const gridViewportRef = useRef(null)
   const normalizedQuery = searchQuery.trim().toLowerCase()
-
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.key === '/' && !(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement)) {
-        event.preventDefault()
-        searchInputRef.current?.focus()
-      }
-      if (event.key === 'Escape' && document.activeElement === searchInputRef.current) {
-        setSearchQuery('')
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
 
   // Close context menu on any click/scroll
   useEffect(() => {
@@ -147,25 +133,20 @@ function SongsScreen({
           </div>
 
           {/* Search */}
-          <div className="relative flex-1 min-w-0">
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="ui-input w-full rounded-full px-4 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/70"
+          <div className="flex-1 flex items-center justify-end">
+            <GooeyInput
               placeholder="Search…"
-              aria-label="Search songs"
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+              collapsedWidth={44}
+              expandedWidth={220}
+              expandedOffset={44}
+              classNames={{
+                trigger: 'bg-white/[0.05] text-gray-400 ring-white/[0.12] !px-2.5 hover:ring-white/25 focus-visible:ring-violet-500/50 focus-visible:ring-offset-[#0c0c0e]',
+                bubbleSurface: 'bg-white/[0.05] ring-white/[0.12]',
+                input: 'text-[#f3f4f6] placeholder:text-[#6b7280] text-xs',
+              }}
             />
-            {normalizedQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 hover:text-white px-1.5 py-0.5 rounded border border-white/10 hover:border-white/30 transition-colors"
-              >
-                ✕
-              </button>
-            )}
           </div>
 
           {/* Track count */}
@@ -176,7 +157,7 @@ function SongsScreen({
 
         {visibleSongs.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-sm text-gray-500 gap-3">
-            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center text-violet-300/70"><Music2 className="w-6 h-6" /></span>
+            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center"><img src="/logo.svg" alt="Listenwell" className="w-7 h-7 brightness-0 invert opacity-40" /></span>
             <p>{normalizedQuery ? 'No songs match your search.' : songFilter === 'loved' ? 'No loved songs yet.' : 'No songs yet.'}</p>
             <button type="button" onClick={onGoToUpload} className="px-4 py-2 rounded-full bg-white text-black text-xs font-medium hover:bg-gray-100 transition">Upload music</button>
           </div>
@@ -206,7 +187,7 @@ function SongsScreen({
                   type="button"
                   onClick={() => onSelectSong(i)}
                   onContextMenu={(e) => openContextMenu(e, song, i)}
-                  className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'}`}
+                  className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-2.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'}`}
                   whileHover={{ y: -4, scale: 1.03 }}
                   transition={{ type: 'spring', stiffness: 260, damping: 20 }}
                 >

@@ -51,7 +51,7 @@ function QueuePanel({ songs, currentTrackIndex, onClose, onPlaySong }) {
                   <p className="text-sm font-medium text-white truncate">{nowPlaying.title || nowPlaying.fileName}</p>
                   <p className="text-xs text-gray-500 truncate">{nowPlaying.artist || 'Unknown artist'}</p>
                 </div>
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0" style={{ background: 'rgb(var(--accent-rgb))' }} />
               </div>
             </div>
           )}

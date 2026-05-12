@@ -31,7 +31,7 @@ function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist,
   return (
     <section className="flex-1 flex flex-col overflow-hidden min-w-0 gap-4 relative">
       <div className="flex items-center justify-center gap-3 shrink-0">
-        <p className="text-base text-gray-300 font-medium tracking-wide">Playlists</p>
+        <h2 className="section-title text-base sm:text-lg text-white">Playlists</h2>
       </div>
 
       <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm p-4 sm:p-5 glass-card overflow-auto">
@@ -40,7 +40,7 @@ function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist,
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1 transition-all duration-200"
+            className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-2 transition-all duration-200"
           >
             <div className="w-full aspect-square rounded-xl overflow-hidden border-2 border-dashed border-white/12 group-hover:border-violet-500/50 flex flex-col items-center justify-center transition-colors bg-white/[0.02] group-hover:bg-violet-500/5">
               <div className="w-10 h-10 rounded-full border border-white/15 group-hover:border-violet-400/60 flex items-center justify-center transition-colors mb-2">
@@ -59,7 +59,7 @@ function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist,
                 key={pl.id}
                 type="button"
                 onClick={() => onSelectPlaylist(pl.id)}
-                className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1 transition-all duration-200 hover:bg-white/[0.04]"
+                className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-2 transition-all duration-200 hover:bg-white/[0.04]"
               >
                 <div
                   className={`relative w-full aspect-square rounded-xl overflow-hidden flex items-center justify-center shadow-inner ${pl.coverUrl ? 'bg-white/[0.06]' : ''}`}

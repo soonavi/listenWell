@@ -944,18 +944,15 @@ function App() {
 
       {/* Header */}
       <header className="relative z-10 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center px-4 sm:px-8 gap-4">
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
-          <div className="flex items-center gap-2 shrink-0">
-            <img src="/logo.svg" alt="listenWell" className="w-8 h-8 brightness-0 invert opacity-60" />
-          </div>
-          {nowPlaying && (
-            <div className="hidden md:flex items-center gap-2 pl-6 text-xs text-gray-300 min-w-0 max-w-[220px]">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0 animate-pulse" />
-              <span className="truncate">
-                {nowPlaying.title || nowPlaying.fileName}
-                {nowPlaying.artist ? <span className="text-gray-500"> — {nowPlaying.artist}</span> : null}
-              </span>
-            </div>
+        <div className="flex flex-col justify-center min-w-0 max-w-[200px] sm:max-w-[260px]">
+          <span className="section-title text-[9px] text-gray-500 leading-none mb-1">Now Playing</span>
+          {nowPlaying ? (
+            <p className="text-sm font-medium text-white/90 truncate leading-tight">
+              {nowPlaying.title || nowPlaying.fileName}
+              {nowPlaying.artist ? <span className="font-normal text-gray-500"> · {nowPlaying.artist}</span> : null}
+            </p>
+          ) : (
+            <p className="text-sm text-gray-600 leading-tight">Nothing playing</p>
           )}
         </div>
 
@@ -968,7 +965,7 @@ function App() {
               onClick={() => setActivePage(tab.id)}
               className={`magnetic-hover px-3 sm:px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium transition border ${
                 activePage === tab.id || (tab.id === 'playlists' && activePage === 'playlist-detail')
-                  ? 'bg-violet-600 border-violet-500 text-white'
+                  ? 'bg-violet-500/15 border-violet-500/60 text-violet-100'
                   : 'bg-transparent border-transparent text-gray-300 hover:bg-white/[0.04]'
               }`}
             >
@@ -979,22 +976,15 @@ function App() {
 
         {/* Logo button — right side of header */}
         <div ref={logoMenuRef} className="ml-auto shrink-0 relative">
-          <div
-            role="button"
-            tabIndex={0}
+          <button
+            type="button"
             onClick={() => setShowLogoMenu((prev) => !prev)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                setShowLogoMenu((prev) => !prev)
-              }
-            }}
-            className="flex items-center gap-2 px-3 py-2 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition cursor-pointer"
+            className="flex items-center gap-2 px-3 py-2 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
             aria-label="Menu"
           >
             <img src="/logo.svg" alt="listenWell" className="w-7 h-7 brightness-0 invert opacity-80" />
             <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
-          </div>
+          </button>
           <AnimatePresence>
             {showLogoMenu && (
               <motion.div
@@ -1068,7 +1058,7 @@ function App() {
           {activePage === 'library' && (
             <motion.section
               key="library"
-              className="flex-1 flex flex-col overflow-hidden min-w-0 glass-card parallax-card"
+              className="flex-1 flex flex-col overflow-hidden min-w-0 glass-card parallax-card p-5 sm:p-6"
               onMouseMove={handleParallaxMove}
               onMouseLeave={handleParallaxLeave}
               variants={pageTransition}
@@ -1107,7 +1097,7 @@ function App() {
                             const idx = songs.findIndex((s) => s.id === entry.song.id)
                             if (idx !== -1) handlePlaySongClick(idx)
                           }}
-                          className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-1 transition-all duration-200 hover:bg-white/[0.04]"
+                          className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-2 transition-all duration-200 hover:bg-white/[0.04]"
                         >
                           <div className="w-full aspect-square rounded-xl bg-white/[0.06] overflow-hidden flex items-center justify-center shadow-inner">
                             {entry.song.coverUrl
@@ -1464,7 +1454,7 @@ function App() {
                       onClick={() => setTheme(normalizeThemeId(scene.id))}
                       className={`rounded-lg border px-2 py-1.5 text-[11px] text-center ${
                         theme === scene.id
-                          ? 'border-cyan-300/70 bg-cyan-500/10 text-cyan-200'
+                          ? 'border-violet-500/60 bg-violet-500/10 text-violet-100'
                           : 'border-white/10 hover:border-white/40 text-gray-300'
                       }`}
                     >
@@ -1485,7 +1475,7 @@ function App() {
                     <input
                       type="range" min={min} max={max} step={0.05} value={value}
                       onChange={(e) => onChange(Number(e.target.value))}
-                      className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-200"
+                      className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                     />
                   </label>
                 ))}
@@ -1513,7 +1503,7 @@ function App() {
                       <input
                         type="range" min={0} max={20} step={0.5} value={songsBgBlur}
                         onChange={(e) => setSongsBgBlur(Number(e.target.value))}
-                        className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan-200"
+                        className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                       />
                     </label>
                     <button
@@ -1529,7 +1519,7 @@ function App() {
               <button
                 type="button"
                 onClick={saveCurrentPreset}
-                className="w-full text-center rounded-lg border border-cyan-300/45 bg-cyan-500/10 text-cyan-200 py-1.5 text-[11px] hover:border-cyan-200/75"
+                className="w-full text-center rounded-lg border border-violet-500/50 bg-violet-500/10 text-violet-100 py-1.5 text-[11px] hover:border-violet-400/70"
               >
                 Save current profile preset
               </button>
