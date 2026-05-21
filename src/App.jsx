@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import './App.css'
 import { analyzeAudio } from './utils/audioAnalysis'
+import { supabase } from './lib/supabase'
+import AuthScreen from './components/AuthScreen'
 import UploadScreen from './components/UploadScreen'
 import SongsScreen from './components/SongsScreen'
 import PlaylistsScreen from './components/PlaylistsScreen'
@@ -192,6 +194,8 @@ async function readAudioTags(file) {
 }
 
 function App() {
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [songs, setSongs] = useState([])
   const [selectedSongIndex, setSelectedSongIndex] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(null)
@@ -577,6 +581,19 @@ function App() {
   const effectivePlaybackRate = clampPlaybackRate(playbackRate)
 
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null)
+      setAuthLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => {
     const audio = audioRef.current
     if (!audio || currentTrackIndex == null || !currentTrackUrl) return
     audio.src = currentTrackUrl
@@ -905,6 +922,18 @@ function App() {
     { id: 'songs', label: 'Songs', icon: Music2 },
     { id: 'upload', label: 'Upload', icon: Upload },
   ]
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen w-full bg-[#0c0c0e] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <AuthScreen onAuth={setUser} />
+  }
 
   return (
     <div
@@ -1807,6 +1836,13 @@ function App() {
                 <p className="text-sm text-white font-medium">ListenWell Pilot</p>
                 <p className="text-xs text-gray-400 mt-1">Futuristic Listener Profile</p>
                 <p className="text-[11px] text-gray-500 mt-2">Theme: {theme}</p>
+                <button
+                  type="button"
+                  onClick={() => supabase.auth.signOut()}
+                  className="mt-3 text-xs text-red-400 hover:text-red-300"
+                >
+                  Sign out
+                </button>
               </div>
               <div className="flex-1 min-h-0">
                 <p className="text-xs text-cyan-200 mb-2">Saved Presets</p>
