@@ -572,6 +572,27 @@ function App() {
     setSongQueue((prev) => prev.includes(songId) ? prev : [...prev, songId])
   }, [])
 
+  const handlePlayPlaylist = useCallback((playlistId, startSongId = null, shufflePlaylist = false) => {
+    const pl = playlists.find((p) => p.id === playlistId)
+    if (!pl) return
+    let ids = pl.songIds.filter((id) => songs.some((s) => s.id === id))
+    if (ids.length === 0) return
+    if (shufflePlaylist) ids = [...ids].sort(() => Math.random() - 0.5)
+    if (startSongId) {
+      const idx = ids.indexOf(startSongId)
+      if (idx > 0) ids = [...ids.slice(idx), ...ids.slice(0, idx)]
+    }
+    const [first, ...rest] = ids
+    const globalIndex = songs.findIndex((s) => s.id === first)
+    if (globalIndex !== -1) handlePlaySongClick(globalIndex)
+    setSongQueue(rest)
+  }, [playlists, songs, handlePlaySongClick])
+
+  const handleDeletePlaylist = useCallback((playlistId) => {
+    setPlaylists((prev) => prev.filter((pl) => pl.id !== playlistId))
+    if (selectedPlaylistId === playlistId) setSelectedPlaylistId(null)
+  }, [selectedPlaylistId])
+
   const currentTrackUrl = songs[currentTrackIndex]?.url ?? null
   const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
   const effectivePlaybackRate = clampPlaybackRate(playbackRate)
@@ -1260,10 +1281,9 @@ function App() {
                     ),
                   )
                 }}
-                onPlaySong={(songId) => {
-                  const index = songs.findIndex((s) => s.id === songId)
-                  if (index !== -1) handlePlaySongClick(index)
-                }}
+                onDeletePlaylist={handleDeletePlaylist}
+                onPlayPlaylist={(id) => handlePlayPlaylist(id, null, false)}
+                onShufflePlaylist={(id) => handlePlayPlaylist(id, null, true)}
               />
             </motion.div>
           )}
@@ -1284,11 +1304,10 @@ function App() {
                 currentTrackIndex={currentTrackIndex}
                 isPlaying={isPlaying}
                 accentPresets={ACCENT_PRESETS}
+                lovedSongIds={lovedSongIds}
+                onToggleLoved={toggleLovedSong}
                 onBack={() => setActivePage('playlists')}
-                onPlaySong={(songId) => {
-                  const index = songs.findIndex((s) => s.id === songId)
-                  if (index !== -1) handlePlaySongClick(index)
-                }}
+                onPlayPlaylist={handlePlayPlaylist}
                 onToggleSongInPlaylist={(songId) => {
                   setPlaylists((prev) =>
                     prev.map((pl) =>
@@ -1308,6 +1327,7 @@ function App() {
                     prev.map((pl) => (pl.id === playlistId ? { ...pl, ...updates } : pl)),
                   )
                 }}
+                onDeletePlaylist={handleDeletePlaylist}
               />
             </motion.div>
           )}

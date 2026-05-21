@@ -1,6 +1,6 @@
 "use client";;
 import { useState, useRef, useEffect, useId, useMemo, useCallback } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 function GooeyFilter({

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Music2, ArrowLeft, Play, ImagePlus, GripVertical, X, Search, Plus, Pencil } from 'lucide-react'
+import { Music2, ArrowLeft, Play, ImagePlus, GripVertical, X, Search, Plus, Pencil, Shuffle, Trash2, Heart } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -17,7 +17,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
-function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex, onPlaySong, onRemove }) {
+function SortableTrackRow({ song, index, isActive, onPlayFromHere, onRemove, onToggleLoved, lovedSongIds }) {
   const {
     attributes,
     listeners,
@@ -34,14 +34,14 @@ function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex
     zIndex: isDragging ? 10 : undefined,
   }
 
-  const active = currentTrackIndex === songIndex && isPlaying
+  const loved = lovedSongIds?.includes(song.id)
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`flex items-center gap-3 rounded-xl px-3 py-2.5 group transition-colors ${
-        isDragging ? 'bg-white/[0.08] shadow-xl' : active ? 'bg-violet-500/10' : 'hover:bg-white/[0.04]'
+        isDragging ? 'bg-white/[0.08] shadow-xl' : isActive ? 'bg-violet-500/10' : 'hover:bg-white/[0.04]'
       }`}
     >
       <div
@@ -53,46 +53,60 @@ function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex
       </div>
 
       <span className="w-5 shrink-0 flex items-center justify-end text-[11px] tabular-nums">
-        {active ? (
+        {isActive ? (
           <span className="flex gap-0.5 items-end h-3">
             <span className="w-0.5 rounded-full bg-violet-400 animate-[equalize_0.8s_ease-in-out_infinite]" style={{ height: '40%', animationDelay: '0s' }} />
             <span className="w-0.5 rounded-full bg-violet-400 animate-[equalize_0.8s_ease-in-out_infinite]" style={{ height: '80%', animationDelay: '0.2s' }} />
             <span className="w-0.5 rounded-full bg-violet-400 animate-[equalize_0.8s_ease-in-out_infinite]" style={{ height: '60%', animationDelay: '0.1s' }} />
           </span>
         ) : (
-          <span className={active ? 'text-violet-400' : 'text-gray-600'}>{index + 1}</span>
+          <span className="text-gray-600">{index + 1}</span>
         )}
       </span>
 
-      <div className="w-9 h-9 rounded-lg overflow-hidden bg-white/[0.06] flex items-center justify-center shrink-0">
+      <div style={{ width: '36px', height: '36px', overflow: 'hidden', borderRadius: '8px', flexShrink: 0, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {song.coverUrl
-          ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" />
+          ? <img src={song.coverUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           : <Music2 className="w-4 h-4 text-gray-600" />
         }
       </div>
 
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium truncate ${active ? 'text-violet-300' : 'text-white/90'}`}>
+        <p className={`text-sm font-medium truncate ${isActive ? 'text-violet-300' : 'text-white/90'}`}>
           {song.title || song.fileName}
         </p>
         <p className="text-xs text-gray-500 truncate">{song.artist || 'Unknown artist'}</p>
       </div>
 
-      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        <button
-          type="button"
-          onClick={() => onPlaySong(song.id)}
-          className="w-7 h-7 rounded-full border border-white/15 flex items-center justify-center text-gray-300 hover:text-white hover:border-white/40 transition-colors"
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        {onToggleLoved && (
+          <div
+            role="button"
+            tabIndex={-1}
+            onClick={() => onToggleLoved(song.id)}
+            className={`p-1 rounded-lg transition-colors cursor-pointer ${loved ? 'text-pink-400' : 'text-gray-600 hover:text-gray-400'}`}
+          >
+            <Heart className="w-3.5 h-3.5" fill={loved ? 'currentColor' : 'none'} />
+          </div>
+        )}
+        <div
+          role="button"
+          tabIndex={-1}
+          onClick={() => onPlayFromHere(song.id)}
+          style={{ width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.15)', flexShrink: 0 }}
+          className="text-gray-300 hover:text-white hover:border-white/40 transition-colors cursor-pointer"
         >
           <Play className="w-3.5 h-3.5 ml-0.5" fill="currentColor" />
-        </button>
-        <button
-          type="button"
+        </div>
+        <div
+          role="button"
+          tabIndex={-1}
           onClick={() => onRemove(song.id)}
-          className="w-7 h-7 rounded-full border border-white/15 flex items-center justify-center text-gray-500 hover:text-red-400 hover:border-red-400/40 transition-colors"
+          style={{ width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.15)', flexShrink: 0 }}
+          className="text-gray-500 hover:text-red-400 hover:border-red-400/40 transition-colors cursor-pointer"
         >
           <X className="w-3.5 h-3.5" />
-        </button>
+        </div>
       </div>
     </div>
   )
@@ -102,17 +116,21 @@ function PlaylistDetailScreen({
   playlist,
   songs,
   onBack,
-  onPlaySong,
+  onPlayPlaylist,
   onToggleSongInPlaylist,
   onUpdatePlaylist,
+  onDeletePlaylist,
   currentTrackIndex,
   isPlaying,
   accentPresets = [],
+  lovedSongIds = [],
+  onToggleLoved,
 }) {
   const [addSearch, setAddSearch] = useState('')
   const [showEdit, setShowEdit] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -149,26 +167,35 @@ function PlaylistDetailScreen({
     onUpdatePlaylist(playlist.id, { songIds: arrayMove(playlist.songIds, oldIndex, newIndex) })
   }
 
+  // Determine which track in the playlist is currently active
+  const currentSong = songs[currentTrackIndex]
+  const activePlaylistIndex = currentSong
+    ? playlistSongs.findIndex((s) => s.id === currentSong.id)
+    : -1
+
   return (
-    <section className="flex-1 flex flex-col gap-4 overflow-hidden min-w-0">
+    <section className="flex-1 flex flex-col gap-4 overflow-hidden min-w-0 relative">
       {/* Header row */}
       <div className="flex items-center gap-3 shrink-0">
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={onBack}
-          className="p-2 rounded-full border border-white/15 text-gray-400 hover:text-white hover:border-white/40 transition-colors shrink-0"
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onBack()}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.15)', flexShrink: 0, cursor: 'pointer' }}
+          className="text-gray-400 hover:text-white hover:border-white/40 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-        </button>
+        </div>
 
         {/* Hero: cover + meta */}
-        <div className="flex items-center gap-5 min-w-0 flex-1">
-          <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-gradient-to-br from-violet-700/60 to-fuchsia-500/40 flex items-center justify-center shadow-xl shrink-0 group">
-            {playlist.coverUrl
-              ? <img src={playlist.coverUrl} alt="" className="w-full h-full object-cover" />
-              : <Music2 className="w-9 h-9 text-violet-300/80" />
-            }
-            <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-xl">
+        <div className="flex items-center gap-4 min-w-0 flex-1">
+          <div className="relative w-20 h-20 rounded-xl overflow-hidden flex items-center justify-center shadow-xl shrink-0 group"
+            style={{ background: playlist.accentColor ? `linear-gradient(135deg, ${playlist.accentColor}99, ${playlist.accentColor}44)` : 'linear-gradient(135deg, rgba(109,40,217,0.6), rgba(217,70,239,0.4))' }}
+          >
+            {playlist.coverUrl && <img src={playlist.coverUrl} alt="" className="w-full h-full object-cover absolute inset-0" />}
+            {!playlist.coverUrl && <Music2 className="w-9 h-9 text-violet-300/80" />}
+            <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-xl z-10">
               <ImagePlus className="w-5 h-5 text-white" />
               <input
                 type="file"
@@ -185,43 +212,68 @@ function PlaylistDetailScreen({
 
           <div className="min-w-0 flex-1">
             <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-0.5">Playlist</p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mb-0.5">
               <h1 className="text-xl font-bold text-white truncate leading-tight">{playlist.name}</h1>
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 title="Edit playlist"
                 onClick={() => { setEditName(playlist.name); setEditDescription(playlist.description || ''); setShowEdit(true) }}
-                className="shrink-0 p-1.5 rounded-lg text-gray-600 hover:text-white hover:bg-white/10 transition-colors"
+                onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (setEditName(playlist.name), setEditDescription(playlist.description || ''), setShowEdit(true))}
+                className="shrink-0 p-1.5 rounded-lg text-gray-600 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
               >
                 <Pencil className="w-3.5 h-3.5" />
-              </button>
+              </div>
             </div>
             {playlist.description && (
-              <p className="text-xs text-gray-500 truncate mt-0.5">{playlist.description}</p>
+              <p className="text-xs text-gray-500 truncate">{playlist.description}</p>
             )}
-            <div className="flex items-center gap-3 mt-2">
-              <p className="text-xs text-gray-600">{playlistSongs.length} {playlistSongs.length === 1 ? 'song' : 'songs'}</p>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span className="text-xs text-gray-600">{playlistSongs.length} {playlistSongs.length === 1 ? 'song' : 'songs'}</span>
               <button
                 type="button"
-                onClick={() => playlistSongs[0] && onPlaySong(playlistSongs[0].id)}
                 disabled={playlistSongs.length === 0}
-                className="px-4 py-1.5 rounded-full bg-white text-black text-xs font-semibold hover:scale-105 transition-transform disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                onClick={() => onPlayPlaylist(playlist.id, null, false)}
+                className="disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <div className="flex items-center gap-1.5">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} className="px-4 py-1.5 rounded-full bg-white text-black text-xs font-semibold hover:scale-105 transition-transform cursor-pointer select-none">
                   <Play className="w-3.5 h-3.5 ml-0.5" fill="currentColor" />
                   Play all
                 </div>
               </button>
+              <button
+                type="button"
+                disabled={playlistSongs.length === 0}
+                onClick={() => onPlayPlaylist(playlist.id, null, true)}
+                className="disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} className="px-3 py-1.5 rounded-full border border-white/20 text-gray-300 text-xs font-medium hover:border-white/40 hover:text-white transition-colors cursor-pointer select-none">
+                  <Shuffle className="w-3 h-3" />
+                  Shuffle
+                </div>
+              </button>
+              {onDeletePlaylist && (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setShowDeleteConfirm(true)}
+                  onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setShowDeleteConfirm(true)}
+                  className="p-1.5 rounded-lg text-gray-700 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                  title="Delete playlist"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </div>
+              )}
             </div>
             {accentPresets.length > 0 && (
-              <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 {accentPresets.map((preset) => (
                   <button
                     key={preset.hex}
                     type="button"
                     title={preset.label}
                     onClick={() => onUpdatePlaylist(playlist.id, { accentColor: playlist.accentColor === preset.hex ? null : preset.hex })}
-                    className="w-5 h-5 rounded-full transition-transform hover:scale-110 shrink-0"
+                    className="w-4 h-4 rounded-full transition-transform hover:scale-110 shrink-0"
                     style={{
                       background: preset.hex,
                       outline: playlist.accentColor === preset.hex ? `2px solid ${preset.hex}` : '2px solid transparent',
@@ -256,21 +308,18 @@ function PlaylistDetailScreen({
                 onDragEnd={handleDragEnd}
               >
                 <SortableContext items={playlist.songIds} strategy={verticalListSortingStrategy}>
-                  {playlistSongs.map((song, index) => {
-                    const songIndex = songs.findIndex((s) => s.id === song.id)
-                    return (
-                      <SortableTrackRow
-                        key={song.id}
-                        song={song}
-                        index={index}
-                        isPlaying={isPlaying}
-                        currentTrackIndex={currentTrackIndex}
-                        songIndex={songIndex}
-                        onPlaySong={onPlaySong}
-                        onRemove={onToggleSongInPlaylist}
-                      />
-                    )
-                  })}
+                  {playlistSongs.map((song, index) => (
+                    <SortableTrackRow
+                      key={song.id}
+                      song={song}
+                      index={index}
+                      isActive={activePlaylistIndex === index && isPlaying}
+                      lovedSongIds={lovedSongIds}
+                      onToggleLoved={onToggleLoved}
+                      onPlayFromHere={(songId) => onPlayPlaylist(playlist.id, songId, false)}
+                      onRemove={onToggleSongInPlaylist}
+                    />
+                  ))}
                 </SortableContext>
               </DndContext>
             )}
@@ -300,15 +349,18 @@ function PlaylistDetailScreen({
             ) : (
               <div className="space-y-0.5">
                 {songsNotInPlaylist.map((song) => (
-                  <button
+                  <div
                     key={song.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => onToggleSongInPlaylist(song.id)}
-                    className="w-full flex items-center gap-2.5 rounded-xl hover:bg-white/[0.06] px-2.5 py-2 transition-colors group text-left"
+                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onToggleSongInPlaylist(song.id)}
+                    className="rounded-xl hover:bg-white/[0.06] px-2.5 py-2 transition-colors group cursor-pointer"
+                    style={{ display: 'flex', alignItems: 'center', gap: '10px' }}
                   >
-                    <div className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.06] flex items-center justify-center shrink-0">
+                    <div style={{ width: '32px', height: '32px', borderRadius: '6px', overflow: 'hidden', background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       {song.coverUrl
-                        ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" />
+                        ? <img src={song.coverUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         : <Music2 className="w-3.5 h-3.5 text-gray-600" />
                       }
                     </div>
@@ -319,13 +371,14 @@ function PlaylistDetailScreen({
                       <p className="text-[11px] text-gray-600 truncate">{song.artist || 'Unknown'}</p>
                     </div>
                     <Plus className="w-3.5 h-3.5 text-gray-600 group-hover:text-violet-400 transition-colors shrink-0" />
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
           </div>
         </div>
       </div>
+
       {/* Edit playlist modal */}
       {showEdit && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-2xl">
@@ -349,6 +402,7 @@ function PlaylistDetailScreen({
               onChange={(e) => setEditName(e.target.value)}
               placeholder="Playlist name"
               className="ui-input rounded-lg px-3 py-2 text-sm w-full"
+              autoFocus
             />
             <textarea
               rows={2}
@@ -361,6 +415,32 @@ function PlaylistDetailScreen({
               Save changes
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {showDeleteConfirm && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-2xl">
+          <div className="w-[min(92%,340px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 flex flex-col gap-4 glass-card">
+            <h3 className="text-sm font-semibold text-white">Delete &ldquo;{playlist.name}&rdquo;?</h3>
+            <p className="text-xs text-gray-400">This will permanently remove the playlist. Your songs will not be deleted.</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 ui-btn-secondary px-3 py-2 text-sm rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { onDeletePlaylist(playlist.id); setShowDeleteConfirm(false); onBack() }}
+                className="flex-1 rounded-xl border border-red-500/50 bg-red-500/10 text-red-300 px-3 py-2 text-sm hover:bg-red-500/20 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
