@@ -1,13 +1,15 @@
+import { supabase } from './lib/supabase'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import './App.css'
 import { analyzeAudio } from './utils/audioAnalysis'
 import UploadScreen from './components/UploadScreen'
-import SongsScreen from './components/SongsScreen'
+import SongsScreen from './components/SongsScreen' 
 import PlaylistsScreen from './components/PlaylistsScreen'
 import PlaylistDetailScreen from './components/PlaylistDetailScreen'
 import NowPlayingOverlay from './components/NowPlayingOverlay'
 import QueuePanel from './components/QueuePanel'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
+import AuthScreen from './components/AuthScreen'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -192,6 +194,8 @@ async function readAudioTags(file) {
 }
 
 function App() {
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [songs, setSongs] = useState([])
   const [selectedSongIndex, setSelectedSongIndex] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(null)
@@ -213,7 +217,6 @@ function App() {
   const [shuffle, setShuffle] = useState(false)
   const [repeat, setRepeat] = useState(() => safeGetStorage('listenwell-repeat', 'off'))
   const [showNowPlaying, setShowNowPlaying] = useState(false)
-  const [showQueue, setShowQueue] = useState(false)
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
   const [volumeNormalization, setVolumeNormalization] = useState(() => safeGetStorage('listenwell-vnorm', 'true') !== 'false')
   const [playCounts, setPlayCounts] = useState(() => parseStoredJSON('listenwell-playcounts', {}))
@@ -266,6 +269,20 @@ function App() {
   const nowPlayingMenuRef = useRef(null)
   const stateRef = useRef({})
   const analyzeQueueRef = useRef([])
+
+  // Auth effect — check session on mount and listen for changes
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null)
+      setAuthLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
 
   const markSongHistory = useCallback((song) => {
     if (!song?.id) return
@@ -572,6 +589,18 @@ function App() {
     setSongQueue((prev) => prev.includes(songId) ? prev : [...prev, songId])
   }, [])
 
+  const handleReorderQueue = useCallback((fromIndex, toIndex) => {
+    const base = (stateRef.current.currentTrackIndex ?? -1) + 1
+    setSongs((prev) => {
+      const next = [...prev]
+      const absFrom = base + fromIndex
+      const absTo = base + toIndex
+      const [item] = next.splice(absFrom, 1)
+      next.splice(absTo, 0, item)
+      return next
+    })
+  }, [])
+
   const currentTrackUrl = songs[currentTrackIndex]?.url ?? null
   const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
   const effectivePlaybackRate = clampPlaybackRate(playbackRate)
@@ -704,6 +733,7 @@ function App() {
     return () => window.removeEventListener('mousedown', onDown)
   }, [showNowPlayingAddMenu])
 
+
   useEffect(() => {
     if (!isDraggingSettings) return
     const onMove = (event) => {
@@ -803,7 +833,6 @@ function App() {
       if (e.key === 'Escape') {
         setShowKeyboardShortcuts(false)
         setShowNowPlaying(false)
-        setShowQueue(false)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -894,9 +923,9 @@ function App() {
   const selectedSong = selectedSongIndex !== null ? songs[selectedSongIndex] : null
 
   const pageTransition = {
-    initial: { opacity: 0, y: 16, filter: 'blur(8px)' },
-    animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
-    exit: { opacity: 0, y: -12, filter: 'blur(8px)' },
+    initial: { opacity: 0, y: 14 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -10 },
   }
 
   const NAV_TABS = [
@@ -905,6 +934,20 @@ function App() {
     { id: 'songs', label: 'Songs', icon: Music2 },
     { id: 'upload', label: 'Upload', icon: Upload },
   ]
+
+  // Auth loading spinner
+  if (authLoading) {
+    return (
+      <div className="min-h-screen w-full bg-[#0c0c0e] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
+  // Auth gate — show login screen if not logged in
+  if (!user) {
+    return <AuthScreen onAuth={setUser} />
+  }
 
   return (
     <div
@@ -943,20 +986,8 @@ function App() {
       />
 
       {/* Header */}
-      <header className="relative z-10 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center px-4 sm:px-8 gap-4">
-        <div className="flex flex-col justify-center min-w-0 max-w-[200px] sm:max-w-[260px]">
-          <span className="section-title text-[9px] text-gray-500 leading-none mb-1">Now Playing</span>
-          {nowPlaying ? (
-            <p className="text-sm font-medium text-white/90 truncate leading-tight">
-              {nowPlaying.title || nowPlaying.fileName}
-              {nowPlaying.artist ? <span className="font-normal text-gray-500"> · {nowPlaying.artist}</span> : null}
-            </p>
-          ) : (
-            <p className="text-sm text-gray-600 leading-tight">Nothing playing</p>
-          )}
-        </div>
-
-        {/* Nav — hidden on mobile, shown sm+ */}
+      <header className="relative z-20 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center justify-end px-4 sm:px-8">
+        {/* Nav — centered */}
         <nav className="absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-2 sm:gap-3">
           {NAV_TABS.map((tab) => (
             <button
@@ -974,16 +1005,16 @@ function App() {
           ))}
         </nav>
 
-        {/* Logo button — right side of header */}
-        <div ref={logoMenuRef} className="ml-auto shrink-0 relative">
+        {/* Logo — right side of header */}
+        <div ref={logoMenuRef} className="shrink-0 relative mr-1">
           <button
             type="button"
             onClick={() => setShowLogoMenu((prev) => !prev)}
-            className="flex items-center gap-2 px-3 py-2 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
+            className="flex items-center gap-2.5 px-4 py-2 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
             aria-label="Menu"
           >
-            <img src="/logo.svg" alt="listenWell" className="w-7 h-7 brightness-0 invert opacity-80" />
-            <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
+            <img src="/logo.svg" alt="listenWell" className="w-9 h-9 brightness-0 invert opacity-80" />
+            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
           </button>
           <AnimatePresence>
             {showLogoMenu && (
@@ -1039,34 +1070,37 @@ function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1 overflow-y-hidden px-6 sm:px-8 py-6 flex gap-6 sm:gap-8">
-        <AnimatePresence mode="wait">
+      <main className="relative z-10 flex-1 overflow-y-hidden px-6 sm:px-8 py-6">
+        <AnimatePresence>
           {activePage === 'upload' && (
             <motion.div
               key="upload"
-              className="flex-1 flex"
+              className="absolute inset-0 flex px-6 sm:px-8 py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={{ duration: 0.35, ease: 'easeOut' }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
             >
               <UploadScreen onUpload={handleUpload} onDrop={processAudioFiles} />
             </motion.div>
           )}
 
           {activePage === 'library' && (
-            <motion.section
+            <motion.div
               key="library"
-              className="flex-1 flex flex-col overflow-hidden min-w-0 glass-card parallax-card p-5 sm:p-6"
-              onMouseMove={handleParallaxMove}
-              onMouseLeave={handleParallaxLeave}
+              className="absolute inset-0 mx-6 sm:mx-8 my-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={{ duration: 0.35, ease: 'easeOut' }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
             >
+              <section
+                className="h-full flex flex-col overflow-hidden min-w-0 glass-card parallax-card p-5 sm:p-6"
+                onMouseMove={handleParallaxMove}
+                onMouseLeave={handleParallaxLeave}
+              >
               <div className="mb-4">
                 <h2 className="section-title text-base sm:text-lg text-white text-center">Recently played</h2>
                 <p className="text-xs text-gray-500 text-center">Songs and playlists you&apos;ve listened to most recently.</p>
@@ -1136,19 +1170,21 @@ function App() {
                   )}
                 </div>
               </div>
-            </motion.section>
+              </section>
+            </motion.div>
           )}
 
           {activePage === 'songs' && (
             <motion.div
               key="songs"
-              className="flex-1 flex relative"
+              className="absolute inset-0"
               variants={pageTransition}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={{ duration: 0.35, ease: 'easeOut' }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
             >
+              <div className="relative flex h-full px-6 sm:px-8 py-6">
             {songsBgUrl && (
               <div
                 aria-hidden
@@ -1209,18 +1245,19 @@ function App() {
                 onParallaxMove={handleParallaxMove}
                 onParallaxLeave={handleParallaxLeave}
               />
+              </div>
             </motion.div>
           )}
 
           {activePage === 'playlists' && (
             <motion.div
               key="playlists"
-              className="flex-1 flex"
+              className="absolute inset-0 flex px-6 sm:px-8 py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={{ duration: 0.35, ease: 'easeOut' }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
             >
               <PlaylistsScreen
                 playlists={playlists}
@@ -1271,12 +1308,12 @@ function App() {
           {activePage === 'playlist-detail' && (
             <motion.div
               key="playlist-detail"
-              className="flex-1 flex"
+              className="absolute inset-0 flex px-6 sm:px-8 py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
               exit="exit"
-              transition={{ duration: 0.35, ease: 'easeOut' }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
             >
               <PlaylistDetailScreen
                 playlist={playlists.find((pl) => pl.id === selectedPlaylistId) || null}
@@ -1312,6 +1349,7 @@ function App() {
             </motion.div>
           )}
         </AnimatePresence>
+
       </main>
 
       {/* Mobile bottom nav (visible sm and below) */}
@@ -1689,14 +1727,6 @@ function App() {
           />
           <button
             type="button"
-            onClick={() => setShowQueue((prev) => !prev)}
-            title="Queue"
-            className={`magnetic-hover p-2 rounded-lg transition-colors ${showQueue ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
-          >
-            <ListMusic className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
             onClick={() => setShowKeyboardShortcuts((prev) => !prev)}
             title="Keyboard shortcuts (?)"
             className={`magnetic-hover p-2 rounded-lg transition-colors ${showKeyboardShortcuts ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
@@ -1714,7 +1744,24 @@ function App() {
           <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
         </button>
 
+
       </footer>
+
+      {/* Persistent queue panel — fixed bottom-right above the player bar */}
+      <div className="fixed right-4 sm:right-6 bottom-[7.5rem] sm:bottom-[8.5rem] z-30 w-56 xl:w-64 flex flex-col rounded-xl border border-white/12 bg-[#0e1016]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
+        <div className="px-3 pt-2.5 pb-1.5 shrink-0 border-b border-white/[0.07]">
+          <p className="text-[9px] uppercase tracking-widest text-gray-600">Up Next</p>
+        </div>
+        <QueuePanel
+          songs={songs}
+          currentTrackIndex={currentTrackIndex}
+          onPlaySong={(songId) => {
+            const index = songs.findIndex((s) => s.id === songId)
+            if (index !== -1) handlePlaySongClick(index)
+          }}
+          onReorderQueue={handleReorderQueue}
+        />
+      </div>
 
       {/* Modals */}
       <AnimatePresence>
@@ -1804,9 +1851,16 @@ function App() {
                 <button type="button" onClick={() => setShowAccountDrawer(false)} className="text-xs text-gray-400 hover:text-white">Close</button>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                <p className="text-sm text-white font-medium">ListenWell Pilot</p>
+                <p className="text-sm text-white font-medium">{user?.email}</p>
                 <p className="text-xs text-gray-400 mt-1">Futuristic Listener Profile</p>
                 <p className="text-[11px] text-gray-500 mt-2">Theme: {theme}</p>
+                <button
+                  type="button"
+                  onClick={() => supabase.auth.signOut()}
+                  className="mt-3 text-xs text-red-400 hover:text-red-300"
+                >
+                  Sign out
+                </button>
               </div>
               <div className="flex-1 min-h-0">
                 <p className="text-xs text-cyan-200 mb-2">Saved Presets</p>
@@ -1858,21 +1912,6 @@ function App() {
             onToggleShuffle={() => setShuffle((prev) => !prev)}
             onToggleRepeat={handleToggleRepeat}
             onToggleLoved={toggleLovedSong}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Queue Panel */}
-      <AnimatePresence>
-        {showQueue && (
-          <QueuePanel
-            songs={songs}
-            currentTrackIndex={currentTrackIndex}
-            onClose={() => setShowQueue(false)}
-            onPlaySong={(songId) => {
-              const index = songs.findIndex((s) => s.id === songId)
-              if (index !== -1) handlePlaySongClick(index)
-            }}
           />
         )}
       </AnimatePresence>
