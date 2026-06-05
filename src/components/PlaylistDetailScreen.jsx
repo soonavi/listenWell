@@ -304,7 +304,7 @@ function PlaylistDetailScreen({
                     key={song.id}
                     type="button"
                     onClick={() => onToggleSongInPlaylist(song.id)}
-                    className="w-full flex items-center gap-2.5 rounded-xl hover:bg-white/[0.06] px-2.5 py-2 transition-colors group text-left"
+                    className="w-full flex flex-row flex-nowrap items-center gap-2.5 rounded-xl hover:bg-white/[0.06] px-2.5 py-2 transition-colors group text-left"
                   >
                     <div className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.06] flex items-center justify-center shrink-0">
                       {song.coverUrl
@@ -318,7 +318,7 @@ function PlaylistDetailScreen({
                       </p>
                       <p className="text-[11px] text-gray-600 truncate">{song.artist || 'Unknown'}</p>
                     </div>
-                    <Plus className="w-3.5 h-3.5 text-gray-600 group-hover:text-violet-400 transition-colors shrink-0" />
+                    <Plus className="w-4 h-4 ml-auto text-violet-500/50 group-hover:text-violet-400 transition-colors shrink-0" />
                   </button>
                 ))}
               </div>

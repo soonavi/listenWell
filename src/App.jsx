@@ -955,28 +955,55 @@ function App() {
       const analyser = analyserRef.current
       const ctx = canvas.getContext('2d')
       const dpr = window.devicePixelRatio || 1
-      const W = canvas.width / dpr
-      const H = canvas.height / dpr
+      // Use actual CSS size so bars never clip regardless of DPR
+      const W = canvas.clientWidth || 130
+      const H = canvas.clientHeight || 130
+      if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
+        canvas.width = Math.round(W * dpr)
+        canvas.height = Math.round(H * dpr)
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, W, H)
-      if (!analyser) return
-      const bufLen = analyser.frequencyBinCount
-      const data = new Uint8Array(bufLen)
-      analyser.getByteFrequencyData(data)
       const accentRaw = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim() || '139 92 246'
       const [r, g, b] = accentRaw.split(' ').map(Number)
       const cx = W / 2, cy = H / 2
-      const innerR = W * 0.35
+      const sphereR = 40  // half of inner sphere (w-20 = 80px)
+      const innerR = sphereR + 3
+      const maxBar = cx - innerR - 3
       const bars = 72
+      if (!analyser) {
+        // Subtle idle pulse so the ring is always visible
+        const t = Date.now() / 1000
+        for (let i = 0; i < bars; i++) {
+          const angle = (i / bars) * 2 * Math.PI - Math.PI / 2
+          const idle = 0.04 + 0.1 * (Math.sin(t * 1.4 + i * 0.38) * 0.5 + 0.5)
+          const bLen = idle * maxBar + 1
+          const x1 = cx + innerR * Math.cos(angle)
+          const y1 = cy + innerR * Math.sin(angle)
+          const x2 = cx + (innerR + bLen) * Math.cos(angle)
+          const y2 = cy + (innerR + bLen) * Math.sin(angle)
+          ctx.beginPath()
+          ctx.moveTo(x1, y1)
+          ctx.lineTo(x2, y2)
+          ctx.strokeStyle = `rgba(${r},${g},${b},0.22)`
+          ctx.lineWidth = 1.5
+          ctx.lineCap = 'round'
+          ctx.stroke()
+        }
+        return
+      }
+      const bufLen = analyser.frequencyBinCount
+      const data = new Uint8Array(bufLen)
+      analyser.getByteFrequencyData(data)
       for (let i = 0; i < bars; i++) {
         const dataIdx = Math.floor((i / bars) * bufLen * 0.65)
         const value = data[dataIdx] / 255
-        const barLen = value * W * 0.22 + 1.5
+        const bLen = value * maxBar + 1.5
         const angle = (i / bars) * 2 * Math.PI - Math.PI / 2
         const x1 = cx + innerR * Math.cos(angle)
         const y1 = cy + innerR * Math.sin(angle)
-        const x2 = cx + (innerR + barLen) * Math.cos(angle)
-        const y2 = cy + (innerR + barLen) * Math.sin(angle)
+        const x2 = cx + (innerR + bLen) * Math.cos(angle)
+        const y2 = cy + (innerR + bLen) * Math.sin(angle)
         ctx.beginPath()
         ctx.moveTo(x1, y1)
         ctx.lineTo(x2, y2)
@@ -1236,17 +1263,16 @@ function App() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -8, scale: 0.97 }}
                 transition={{ duration: 0.15, ease: 'easeOut' }}
-                className="absolute right-0 top-[calc(100%+0.5rem)] w-56 rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1 z-30"
+                className="absolute right-0 top-[calc(100%+0.5rem)] min-w-[290px] rounded-2xl border border-white/15 backdrop-blur-2xl p-2 flex flex-col gap-0.5 z-30"
+                style={{ background: 'rgba(12,12,16,0.92)', boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.07)' }}
               >
                 <button
                   type="button"
                   onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }}
-                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left"
                 >
-                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
-                    <UserCircle2 className="w-4 h-4 shrink-0 text-gray-400" />
-                    <span>Account</span>
-                  </div>
+                  <UserCircle2 className="w-5 h-5 shrink-0 text-gray-400" />
+                  <span>Account</span>
                 </button>
                 <button
                   type="button"
@@ -1255,12 +1281,10 @@ function App() {
                     setShowAboutModal(true)
                     setShowLogoMenu(false)
                   }}
-                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left"
                 >
-                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
-                    <Info className="w-4 h-4 shrink-0 text-gray-400" />
-                    <span>About</span>
-                  </div>
+                  <Info className="w-5 h-5 shrink-0 text-gray-400" />
+                  <span>About</span>
                 </button>
                 <button
                   type="button"
@@ -1269,12 +1293,10 @@ function App() {
                     setShowListeningHistoryModal(true)
                     setShowLogoMenu(false)
                   }}
-                  className="w-full rounded-lg hover:bg-white/10 px-3 py-2"
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left"
                 >
-                  <div className="flex items-center gap-2.5 text-sm text-gray-200 whitespace-nowrap">
-                    <History className="w-4 h-4 shrink-0 text-gray-400" />
-                    <span>Listening history</span>
-                  </div>
+                  <History className="w-5 h-5 shrink-0 text-gray-400" />
+                  <span>Listening history</span>
                 </button>
               </motion.div>
             )}
@@ -1801,7 +1823,7 @@ function App() {
       )}
 
       {/* Bottom Player Bar */}
-      <footer className="relative z-10 h-28 sm:h-32 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center px-4 sm:px-8 gap-4 sm:gap-8 w-full shrink-0 overflow-visible">
+      <footer className="relative z-10 h-32 sm:h-36 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center px-4 sm:px-8 gap-4 sm:gap-8 w-full shrink-0 overflow-visible">
         <div className="cat-hanging" aria-hidden />
 
         {/* Album art — click to open NowPlaying overlay */}
@@ -1810,12 +1832,12 @@ function App() {
           tabIndex={nowPlaying ? 0 : -1}
           onClick={() => nowPlaying && setShowNowPlaying(true)}
           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && nowPlaying && setShowNowPlaying(true)}
-          className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-white/[0.08] overflow-hidden shrink-0 flex items-center justify-center text-2xl transition-transform ${nowPlaying ? 'hover:scale-105 cursor-pointer' : 'cursor-default'}`}
+          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-white/[0.08] overflow-hidden shrink-0 flex items-center justify-center text-2xl ${nowPlaying ? 'cursor-pointer hover:brightness-110 transition-[filter]' : 'cursor-default'}`}
           aria-label="Open now playing"
         >
           {nowPlaying?.coverUrl
             ? <img src={nowPlaying.coverUrl} alt="" className="w-full h-full object-cover" />
-            : <Music2 className="w-8 h-8 text-violet-300/80" />
+            : <Music2 className="w-5 h-5 text-violet-300/80" />
           }
         </div>
 
@@ -1996,25 +2018,22 @@ function App() {
         {/* Profile sphere + circular EQ */}
         <button
           type="button"
-          onClick={() => setShowAccountDrawer(true)}
-          className="relative shrink-0 ml-2 flex items-center justify-center"
-          style={{ width: 80, height: 80 }}
-          title="Profile"
+          onClick={() => nowPlaying && setShowNowPlaying(true)}
+          className="relative shrink-0 ml-6 flex items-center justify-center"
+          style={{ width: 130, height: 130 }}
+          title="Now playing"
         >
           <canvas
             ref={circularEqCanvasRef}
             className="absolute inset-0"
-            style={{ width: 80, height: 80 }}
-            width={160}
-            height={160}
           />
           <div
-            className="relative z-10 w-14 h-14 rounded-full overflow-hidden border-2 flex items-center justify-center"
+            className="relative z-10 w-20 h-20 rounded-full overflow-hidden border-2 flex items-center justify-center"
             style={{ borderColor: 'rgba(var(--accent-rgb), 0.6)' }}
           >
             {profilePicUrl
               ? <img src={profilePicUrl} alt="Profile" className="w-full h-full object-cover" />
-              : <UserCircle2 className="w-8 h-8 text-gray-500" />
+              : <UserCircle2 className="w-10 h-10 text-gray-500" />
             }
           </div>
         </button>
@@ -2029,7 +2048,7 @@ function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.97 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="fixed right-4 sm:right-6 bottom-[7.5rem] sm:bottom-[8.5rem] z-40 w-80 xl:w-96 flex flex-col rounded-2xl overflow-hidden"
+            className="fixed right-4 sm:right-6 bottom-[8.5rem] sm:bottom-[9.5rem] z-40 w-80 xl:w-96 flex flex-col rounded-2xl overflow-hidden"
             style={{ background: 'rgba(10,10,13,0.88)', boxShadow: '0 16px 48px rgba(0,0,0,0.65), inset 0 0 0 1px rgba(255,255,255,0.08)', maxHeight: '420px' }}
           >
             <div className="px-4 pt-3 pb-2 shrink-0 border-b border-white/[0.06] flex items-center gap-2">
@@ -2152,14 +2171,14 @@ function App() {
               {/* Profile card */}
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 flex items-center gap-4">
                 <label className="relative cursor-pointer group shrink-0">
-                  <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white/20 group-hover:border-violet-400/60 transition-colors flex items-center justify-center bg-white/[0.06]">
+                  <div className="w-28 h-28 rounded-full overflow-hidden border-2 border-white/20 group-hover:border-violet-400/60 transition-colors flex items-center justify-center bg-white/[0.06]">
                     {profilePicUrl
                       ? <img src={profilePicUrl} alt="Profile" className="w-full h-full object-cover" />
-                      : <UserCircle2 className="w-8 h-8 text-gray-600" />
+                      : <UserCircle2 className="w-12 h-12 text-gray-600" />
                     }
                   </div>
                   <span className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <ImagePlus className="w-4 h-4 text-white" />
+                    <ImagePlus className="w-5 h-5 text-white" />
                   </span>
                   <input type="file" accept="image/*" className="hidden" onChange={handleProfilePicUpload} />
                 </label>
