@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(grep -E \"^C:\\\\\\\\Projects\\\\\\\\listenwell\\\\\\\\src\")"
+    ]
+  }
+}

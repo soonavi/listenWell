@@ -7,7 +7,7 @@ import SongsScreen from './components/SongsScreen'
 import PlaylistsScreen from './components/PlaylistsScreen'
 import PlaylistDetailScreen from './components/PlaylistDetailScreen'
 import NowPlayingOverlay from './components/NowPlayingOverlay'
-import QueuePanel from './components/QueuePanel'
+import UpNextPanel from './components/UpNextPanel'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
 import AuthScreen from './components/AuthScreen'
 // eslint-disable-next-line no-unused-vars
@@ -269,6 +269,12 @@ function App() {
   const nowPlayingMenuRef = useRef(null)
   const stateRef = useRef({})
   const analyzeQueueRef = useRef([])
+  const [crossfadeDuration, setCrossfadeDuration] = useState(() => Number(safeGetStorage('listenwell-crossfade', '300')))
+  const [artColorExtract, setArtColorExtract] = useState(() => safeGetStorage('listenwell-art-color', 'false') === 'true')
+  const [showUpNext, setShowUpNext] = useState(false)
+  const [profilePicUrl, setProfilePicUrl] = useState(() => safeGetStorage('listenwell-profile-pic', null))
+  const [displayName, setDisplayName] = useState(() => safeGetStorage('listenwell-display-name', ''))
+  const circularEqCanvasRef = useRef(null)
 
   // Auth effect — check session on mount and listen for changes
   useEffect(() => {
@@ -283,6 +289,45 @@ function App() {
 
     return () => subscription.unsubscribe()
   }, [])
+  
+  useEffect(() => {
+    if (!user) return
+  
+    const loadSongs = async () => {
+      const { data: tracks, error } = await supabase
+        .from('tracks')
+        .select('*')
+        .eq('user_id', user.id)
+  
+      if (error || !tracks?.length) return
+  
+      const songsWithUrls = await Promise.all(
+        tracks.map(async (track) => {
+          const { data: signedData } = await supabase.storage
+            .from('audio-files')
+            .createSignedUrl(track.storage_path, 3600)
+  
+          return {
+            id: track.id,
+            title: track.title,
+            fileName: track.storage_path.split('/').pop(),
+            artist: track.artist || '',
+            album: track.album || '',
+            url: signedData?.signedUrl || '',
+            coverUrl: null,
+            description: '',
+            lyrics: '',
+            gainDb: 0,
+            bpm: null,
+          }
+        })
+      )
+  
+      setSongs(songsWithUrls)
+    }
+  
+    loadSongs()
+  }, [user])
 
   const markSongHistory = useCallback((song) => {
     if (!song?.id) return
@@ -385,12 +430,13 @@ function App() {
     event.currentTarget.style.setProperty('--my', '50%')
   }
 
-  // Brief crossfade out before switching tracks (300ms)
+  // Crossfade out before switching tracks — duration controlled by crossfadeDuration setting
   const crossfade = useCallback((callback) => {
     const audio = audioRef.current
-    if (!audio || audio.paused) { callback(); return }
+    if (!audio || audio.paused || crossfadeDuration === 0) { callback(); return }
+    const steps = Math.max(4, Math.round(crossfadeDuration / 25))
+    const intervalMs = crossfadeDuration / steps
     let step = 0
-    const steps = 12
     const startVol = audio.volume
     const id = setInterval(() => {
       step++
@@ -400,8 +446,8 @@ function App() {
         audio.volume = startVol
         callback()
       }
-    }, 25)
-  }, [])
+    }, intervalMs)
+  }, [crossfadeDuration])
 
   const toggleLovedSong = (songId) => {
     setLovedSongIds((prev) =>
@@ -471,16 +517,33 @@ function App() {
   }
 
   const processAudioFiles = useCallback(async (fileList) => {
+    const { data: { user: currentUser } } = await supabase.auth.getUser()
+    if (!currentUser) return
+  
     const files = Array.from(fileList || [])
     const audioFiles = files.filter((f) => f.type.startsWith('audio/') || f.type === 'video/webm' || f.type === 'video/ogg' || f.name.match(/\.(webm|ogg|opus|m4a)$/i))
     if (audioFiles.length === 0) return
-
-    // Build basic song objects immediately (ID3 tags are fast)
+  
     const newSongs = await Promise.all(
       audioFiles.map(async (f) => {
-        const id = stableSongId(f.name)
+        const id = crypto.randomUUID()
         const tags = await readAudioTags(f)
-
+  
+        const sanitizedName = f.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+        const storagePath = `${currentUser.id}/${id}/${sanitizedName}`
+  
+        const { error: uploadError } = await supabase.storage
+          .from('audio-files')
+          .upload(storagePath, f, { upsert: true })
+  
+        if (uploadError) console.error('Upload failed:', uploadError.message)
+  
+        const { data: signedData } = await supabase.storage
+          .from('audio-files')
+          .createSignedUrl(storagePath, 3600)
+  
+        const url = signedData?.signedUrl || URL.createObjectURL(f)
+  
         let coverUrl = null
         if (tags?.picture) {
           const { data, format } = tags.picture
@@ -489,28 +552,43 @@ function App() {
             coverUrl = URL.createObjectURL(blob)
           } catch { coverUrl = null }
         }
-
-        return {
-          id,
+  
+        const songData = {
           title: tags?.title || f.name.replace(/\.[^/.]+$/, ''),
           fileName: f.name,
-          url: URL.createObjectURL(f),
           artist: tags?.artist || '',
           album: tags?.album || '',
+          gainDb: 0,
+          bpm: null,
+        }
+  
+        const { error: dbError } = await supabase.from('tracks').upsert({
+          id,
+          user_id: currentUser.id,
+          title: songData.title,
+          artist: songData.artist,
+          album: songData.album,
+          storage_path: storagePath,
+        })
+        if (dbError) console.error('DB error:', dbError.message)
+  
+        return {
+          id,
+          ...songData,
+          url,
           coverUrl,
           description: '',
           lyrics: '',
-          gainDb: 0,
-          bpm: null,
-          _file: f, // temporary, removed after analysis
+          _file: f,
         }
       }),
     )
-
+  
+    console.log('newSongs:', newSongs)
+  
     setSongs((prev) => {
       const existingIds = new Set(prev.map((s) => s.id))
       const toAdd = newSongs.filter((s) => !existingIds.has(s.id))
-      // Strip the temporary _file field from state
       return [...prev, ...toAdd.map(({ _file: _, ...rest }) => rest)]
     })
     setActivePage('songs')
@@ -518,8 +596,7 @@ function App() {
       setSelectedSongIndex(0)
       setCurrentTrackIndex(0)
     }
-
-    // Background analysis: BPM + volume normalisation (non-blocking)
+  
     for (const song of newSongs) {
       const f = song._file
       if (!f) continue
@@ -527,9 +604,10 @@ function App() {
         setSongs((prev) => prev.map((s) => s.id === song.id ? { ...s, gainDb, bpm } : s))
       }).catch(() => {})
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleUpload = (e) => {
+    console.log('handleUpload called', e.target.files)
     processAudioFiles(e.target.files || [])
     if (e?.target) e.target.value = ''
   }
@@ -601,6 +679,47 @@ function App() {
     })
   }, [])
 
+  const handleEditSongFromContext = useCallback((songIndex) => {
+    setSelectedSongIndex(songIndex)
+    // Do NOT set currentTrackIndex — we just want to show the Details panel
+  }, [])
+
+  const handleProfilePicUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result
+      setProfilePicUrl(dataUrl)
+      safeSetStorage('listenwell-profile-pic', dataUrl)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleEditQueueSong = useCallback((song) => {
+    const idx = songs.findIndex((s) => s.id === song.id)
+    if (idx !== -1) {
+      setActivePage('songs')
+      setSelectedSongIndex(idx)
+    }
+    setShowUpNext(false)
+  }, [songs])
+
+  const handleRemoveFromQueue = useCallback((upNextRelIdx) => {
+    const cur = stateRef.current.currentTrackIndex ?? -1
+    const absIdx = cur + 1 + upNextRelIdx
+    setSongs((prev) => {
+      if (absIdx < 0 || absIdx >= prev.length) return prev
+      const next = [...prev]
+      const [item] = next.splice(absIdx, 1)
+      next.splice(0, 0, item) // park at front of array so it stays in library
+      return next
+    })
+    // Shift currentTrackIndex to keep pointing at the same song
+    setCurrentTrackIndex((prev) => (prev != null ? prev + 1 : null))
+    setSelectedSongIndex((prev) => (typeof prev === 'number' ? prev + 1 : prev))
+  }, [])
+
   const currentTrackUrl = songs[currentTrackIndex]?.url ?? null
   const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
   const effectivePlaybackRate = clampPlaybackRate(playbackRate)
@@ -655,6 +774,9 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-playlists', JSON.stringify(playlists)) }, [playlists])
   useEffect(() => { safeSetStorage('listenwell-playcounts', JSON.stringify(playCounts)) }, [playCounts])
   useEffect(() => { safeSetStorage('listenwell-vnorm', String(volumeNormalization)) }, [volumeNormalization])
+  useEffect(() => { safeSetStorage('listenwell-crossfade', String(crossfadeDuration)) }, [crossfadeDuration])
+  useEffect(() => { safeSetStorage('listenwell-art-color', String(artColorExtract)) }, [artColorExtract])
+  useEffect(() => { if (displayName) safeSetStorage('listenwell-display-name', displayName) }, [displayName])
 
   // Apply per-song gain normalisation whenever the track changes
   useEffect(() => {
@@ -663,6 +785,32 @@ function App() {
     const db = volumeNormalization && song?.gainDb ? song.gainDb : 0
     gainNodeRef.current.gain.value = Math.min(4, Math.max(0.25, Math.pow(10, db / 20)))
   }, [currentTrackIndex, volumeNormalization, songs])
+
+  // Extract dominant color from album art when artColorExtract is enabled
+  useEffect(() => {
+    if (!artColorExtract) { setAccentColor('139 92 246'); return }
+    const coverUrl = songs[currentTrackIndex]?.coverUrl
+    if (!coverUrl) { setAccentColor('139 92 246'); return }
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = 8; canvas.height = 8
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, 8, 8)
+        const data = ctx.getImageData(0, 0, 8, 8).data
+        let r = 0, g = 0, b = 0, count = 0
+        for (let i = 0; i < data.length; i += 4) {
+          const lum = (data[i] + data[i + 1] + data[i + 2]) / 3
+          if (lum < 30 || lum > 225) continue
+          r += data[i]; g += data[i + 1]; b += data[i + 2]; count++
+        }
+        setAccentColor(count > 0 ? `${Math.round(r / count)} ${Math.round(g / count)} ${Math.round(b / count)}` : '139 92 246')
+      } catch { setAccentColor('139 92 246') }
+    }
+    img.onerror = () => setAccentColor('139 92 246')
+    img.src = coverUrl
+  }, [artColorExtract, currentTrackIndex, songs])
 
   // Override accent with playlist colour when on playlist-detail page
   useEffect(() => {
@@ -796,6 +944,51 @@ function App() {
     frameId = requestAnimationFrame(tick)
     return () => { if (frameId) cancelAnimationFrame(frameId) }
   }, [isPlaying])
+
+  // Circular equalizer animation around profile sphere
+  useEffect(() => {
+    const canvas = circularEqCanvasRef.current
+    if (!canvas) return
+    let frameId
+    const draw = () => {
+      frameId = requestAnimationFrame(draw)
+      const analyser = analyserRef.current
+      const ctx = canvas.getContext('2d')
+      const dpr = window.devicePixelRatio || 1
+      const W = canvas.width / dpr
+      const H = canvas.height / dpr
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, W, H)
+      if (!analyser) return
+      const bufLen = analyser.frequencyBinCount
+      const data = new Uint8Array(bufLen)
+      analyser.getByteFrequencyData(data)
+      const accentRaw = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim() || '139 92 246'
+      const [r, g, b] = accentRaw.split(' ').map(Number)
+      const cx = W / 2, cy = H / 2
+      const innerR = W * 0.35
+      const bars = 72
+      for (let i = 0; i < bars; i++) {
+        const dataIdx = Math.floor((i / bars) * bufLen * 0.65)
+        const value = data[dataIdx] / 255
+        const barLen = value * W * 0.22 + 1.5
+        const angle = (i / bars) * 2 * Math.PI - Math.PI / 2
+        const x1 = cx + innerR * Math.cos(angle)
+        const y1 = cy + innerR * Math.sin(angle)
+        const x2 = cx + (innerR + barLen) * Math.cos(angle)
+        const y2 = cy + (innerR + barLen) * Math.sin(angle)
+        ctx.beginPath()
+        ctx.moveTo(x1, y1)
+        ctx.lineTo(x2, y2)
+        ctx.strokeStyle = `rgba(${r},${g},${b},${0.35 + value * 0.65})`
+        ctx.lineWidth = 1.8
+        ctx.lineCap = 'round'
+        ctx.stroke()
+      }
+    }
+    draw()
+    return () => cancelAnimationFrame(frameId)
+  }, [])
 
   // Keep stateRef fresh so the keyboard handler always reads current state
   stateRef.current = { isPlaying, currentTrackIndex, songs, shuffle, repeat }
@@ -987,6 +1180,26 @@ function App() {
 
       {/* Header */}
       <header className="relative z-20 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center justify-end px-4 sm:px-8">
+        {/* Now Playing indicator — top left */}
+        <div className="absolute left-4 sm:left-8 flex items-center gap-2 min-w-0 max-w-[260px] sm:max-w-[340px]">
+          {nowPlaying ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_2px_rgba(74,222,128,0.55)] animate-pulse shrink-0" />
+              <span className="text-[11px] sm:text-xs text-gray-400 truncate">
+                <span className="text-gray-500">Now Playing: </span>
+                <span className="text-gray-200">{nowPlaying.artist || 'Unknown'}</span>
+                <span className="text-gray-500"> — </span>
+                <span className="text-gray-200">{nowPlaying.title || nowPlaying.fileName}</span>
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="w-2 h-2 rounded-full bg-gray-700 shrink-0" />
+              <span className="text-[11px] sm:text-xs text-gray-600">Now Playing: —</span>
+            </>
+          )}
+        </div>
+
         {/* Nav — centered */}
         <nav className="absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-2 sm:gap-3">
           {NAV_TABS.map((tab) => (
@@ -1006,14 +1219,14 @@ function App() {
         </nav>
 
         {/* Logo — right side of header */}
-        <div ref={logoMenuRef} className="shrink-0 relative mr-1">
+        <div ref={logoMenuRef} className="shrink-0 relative mr-3">
           <button
             type="button"
             onClick={() => setShowLogoMenu((prev) => !prev)}
-            className="flex items-center gap-2.5 px-4 py-2 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
+            className="flex items-center gap-3 px-5 py-2.5 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
             aria-label="Menu"
           >
-            <img src="/logo.svg" alt="listenWell" className="w-9 h-9 brightness-0 invert opacity-80" />
+            <img src="/logo.svg" alt="listenWell" className="w-11 h-11 brightness-0 invert opacity-80" />
             <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
           </button>
           <AnimatePresence>
@@ -1185,20 +1398,9 @@ function App() {
               transition={{ duration: 0.25, ease: 'easeOut' }}
             >
               <div className="relative flex h-full px-6 sm:px-8 py-6">
-            {songsBgUrl && (
-              <div
-                aria-hidden
-                className="absolute inset-0 z-[-1] overflow-hidden rounded-2xl"
-                style={{
-                  backgroundImage: `url(${songsBgUrl})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                  filter: `blur(${songsBgBlur}px)`,
-                  transform: 'scale(1.08)',
-                }}
-              />
-            )}
               <SongsScreen
+                songsBgUrl={songsBgUrl}
+                songsBgBlur={songsBgBlur}
                 songs={songs}
                 selectedSongIndex={selectedSongIndex}
                 currentTrackIndex={currentTrackIndex}
@@ -1225,6 +1427,7 @@ function App() {
                   }
                 }}
                 onSelectSong={handleSelectSong}
+                onEditSong={handleEditSongFromContext}
                 onPlaySongClick={handlePlaySongClick}
                 onGoToUpload={() => setActivePage('upload')}
                 onUploadMore={handleUpload}
@@ -1378,7 +1581,7 @@ function App() {
         <div
           ref={settingsPanelRef}
           className="fixed z-[100] w-80 rounded-2xl bg-black/80 border border-white/10 shadow-xl backdrop-blur-xl p-4 flex flex-col gap-3 glass-card"
-          style={{ left: settingsPosition.x, top: settingsPosition.y }}
+          style={{ left: settingsPosition.x, top: settingsPosition.y, maxHeight: 'min(88vh, 640px)' }}
         >
           <div
             className="flex items-center justify-between mb-1 cursor-grab active:cursor-grabbing select-none"
@@ -1406,6 +1609,7 @@ function App() {
             ))}
           </div>
 
+          <div className="overflow-y-auto flex-1 min-h-0 -mx-1 px-1">
           {settingsTab === 'playback' && (
             <div className="flex flex-col gap-3 text-xs text-gray-300">
               <div className="flex flex-col gap-1.5">
@@ -1462,6 +1666,22 @@ function App() {
                 >
                   <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${volumeNormalization ? 'translate-x-4' : 'translate-x-0.5'}`} />
                 </button>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Crossfade</span>
+                  <span className="tabular-nums text-cyan-300 font-semibold tracking-wide">{crossfadeDuration === 0 ? 'Off' : `${crossfadeDuration}ms`}</span>
+                </div>
+                <input
+                  type="range" min={0} max={2000} step={50}
+                  value={crossfadeDuration}
+                  onChange={(e) => setCrossfadeDuration(Number(e.target.value))}
+                  className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+                />
+                <div className="relative text-[10px] text-gray-500 h-3">
+                  <span className="absolute left-0">Off</span>
+                  <span className="absolute right-0">2s</span>
+                </div>
               </div>
               <div className="flex flex-col gap-2">
                 <span className="font-medium">Neural Equalizer</span>
@@ -1554,6 +1774,19 @@ function App() {
                   </>
                 )}
               </div>
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-medium">Art color extraction</span>
+                  <span className="text-[10px] text-gray-600">Pulls accent color from album art</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setArtColorExtract((prev) => !prev)}
+                  className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${artColorExtract ? 'bg-violet-600' : 'bg-white/20'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${artColorExtract ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={saveCurrentPreset}
@@ -1563,6 +1796,7 @@ function App() {
               </button>
             </div>
           )}
+          </div>{/* end overflow-y-auto settings content */}
         </div>
       )}
 
@@ -1594,9 +1828,9 @@ function App() {
               <button
                 type="button"
                 onClick={() => setShowNowPlayingAddMenu((prev) => !prev)}
-                className="w-5 h-5 rounded-full border border-white/30 inline-flex items-center justify-center text-gray-200 hover:border-white/70"
+                className="w-8 h-8 rounded-full border border-white/25 inline-flex items-center justify-center text-gray-300 hover:border-violet-400/60 hover:bg-violet-500/10 hover:text-violet-300 transition-colors shrink-0"
               >
-                <Plus className="w-3 h-3" />
+                <Plus className="w-4 h-4" />
               </button>
             )}
           </div>
@@ -1604,17 +1838,21 @@ function App() {
             {nowPlaying?.artist || (nowPlaying ? 'Unknown artist' : '—')}
           </p>
           {showNowPlayingAddMenu && nowPlaying && (
-            <div className="absolute z-30 right-0 bottom-[calc(100%+0.35rem)] w-72 max-h-[min(50vh,360px)] overflow-y-auto rounded-xl border border-white/12 bg-[#0e1016]/95 backdrop-blur-xl p-2 flex flex-col gap-1">
+            <div className="absolute z-30 left-0 bottom-[calc(100%+1rem)] w-64 max-h-[min(50vh,320px)] overflow-y-auto rounded-2xl border border-white/15 bg-white/[0.04] backdrop-blur-2xl p-1.5 flex flex-col gap-0.5" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.07)' }}>
+              <div className="px-3 pt-1.5 pb-1">
+                <p className="text-[9px] uppercase tracking-widest text-gray-600">Add to</p>
+              </div>
               <button
                 type="button"
                 onClick={() => { toggleLovedSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }}
-                className="w-full rounded-lg hover:bg-white/10 px-4 py-3"
+                className="w-full rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-left transition-colors"
               >
-                <div className="flex items-center gap-3 text-sm text-gray-200 whitespace-nowrap">
-                  <Heart className="w-4 h-4 shrink-0" fill={lovedSongIds.includes(nowPlaying.id) ? 'currentColor' : 'none'} />
-                  <span>{lovedSongIds.includes(nowPlaying.id) ? 'Unlove song' : 'Love song'}</span>
+                <div className="flex items-center gap-3 text-sm whitespace-nowrap">
+                  <Heart className="w-4 h-4 shrink-0 text-gray-400" fill={lovedSongIds.includes(nowPlaying.id) ? 'currentColor' : 'none'} />
+                  <span className="text-white">{lovedSongIds.includes(nowPlaying.id) ? 'Unlove song' : 'Love song'}</span>
                 </div>
               </button>
+              {playlists.length > 0 && <div className="h-px bg-white/[0.07] mx-2 my-0.5" />}
               {playlists.map((pl) => (
                 <button
                   key={pl.id}
@@ -1629,17 +1867,18 @@ function App() {
                     )
                     setShowNowPlayingAddMenu(false)
                   }}
-                  className="w-full rounded-lg hover:bg-white/10 px-4 py-3 text-left"
+                  className="w-full rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-left transition-colors"
                 >
-                  <span className="text-sm text-gray-300 whitespace-nowrap truncate block">Add to {pl.name}</span>
+                  <span className="text-sm text-white whitespace-nowrap truncate block">{pl.name}</span>
                 </button>
               ))}
+              <div className="h-px bg-white/[0.07] mx-2 my-0.5" />
               <button
                 type="button"
                 onClick={() => { createPlaylistWithSong(nowPlaying.id); setShowNowPlayingAddMenu(false) }}
-                className="w-full rounded-lg hover:bg-white/10 px-4 py-3 text-left"
+                className="w-full rounded-xl hover:bg-cyan-500/10 px-3 py-2.5 text-left transition-colors"
               >
-                <span className="text-sm text-cyan-300 whitespace-nowrap">+ Create playlist &amp; add</span>
+                <span className="text-sm text-white whitespace-nowrap">+ New playlist &amp; add</span>
               </button>
             </div>
           )}
@@ -1669,9 +1908,9 @@ function App() {
               type="button"
               onClick={handlePlayPause}
               disabled={songs.length === 0}
-              className="magnetic-hover glow-pulse w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className="magnetic-hover ring-pulse w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              {isPlaying ? <Pause className="w-6 h-6 ml-0.5" /> : <Play className="w-6 h-6 ml-0.5" />}
+              {isPlaying ? <Pause className="w-5 h-5" strokeWidth={1.75} /> : <Play className="w-5 h-5 ml-0.5" strokeWidth={1.75} />}
             </button>
             <button
               type="button"
@@ -1744,24 +1983,83 @@ function App() {
           <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
         </button>
 
+        <button
+          type="button"
+          onClick={() => setShowUpNext((prev) => !prev)}
+          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-14 h-14 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
+          title="Up Next"
+        >
+          <ListMusic className="w-5 h-5 sm:w-6 sm:h-6" />
+          <span className="text-[7px] uppercase tracking-wider hidden sm:block">Queue</span>
+        </button>
+
+        {/* Profile sphere + circular EQ */}
+        <button
+          type="button"
+          onClick={() => setShowAccountDrawer(true)}
+          className="relative shrink-0 ml-2 flex items-center justify-center"
+          style={{ width: 80, height: 80 }}
+          title="Profile"
+        >
+          <canvas
+            ref={circularEqCanvasRef}
+            className="absolute inset-0"
+            style={{ width: 80, height: 80 }}
+            width={160}
+            height={160}
+          />
+          <div
+            className="relative z-10 w-14 h-14 rounded-full overflow-hidden border-2 flex items-center justify-center"
+            style={{ borderColor: 'rgba(var(--accent-rgb), 0.6)' }}
+          >
+            {profilePicUrl
+              ? <img src={profilePicUrl} alt="Profile" className="w-full h-full object-cover" />
+              : <UserCircle2 className="w-8 h-8 text-gray-500" />
+            }
+          </div>
+        </button>
 
       </footer>
 
-      {/* Persistent queue panel — fixed bottom-right above the player bar */}
-      <div className="fixed right-4 sm:right-6 bottom-[7.5rem] sm:bottom-[8.5rem] z-30 w-56 xl:w-64 flex flex-col rounded-xl border border-white/12 bg-[#0e1016]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
-        <div className="px-3 pt-2.5 pb-1.5 shrink-0 border-b border-white/[0.07]">
-          <p className="text-[9px] uppercase tracking-widest text-gray-600">Up Next</p>
-        </div>
-        <QueuePanel
-          songs={songs}
-          currentTrackIndex={currentTrackIndex}
-          onPlaySong={(songId) => {
-            const index = songs.findIndex((s) => s.id === songId)
-            if (index !== -1) handlePlaySongClick(index)
-          }}
-          onReorderQueue={handleReorderQueue}
-        />
-      </div>
+      {/* Up Next popup panel — slides up above the footer right */}
+      <AnimatePresence>
+        {showUpNext && (
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.97 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="fixed right-4 sm:right-6 bottom-[7.5rem] sm:bottom-[8.5rem] z-40 w-80 xl:w-96 flex flex-col rounded-2xl overflow-hidden"
+            style={{ background: 'rgba(10,10,13,0.88)', boxShadow: '0 16px 48px rgba(0,0,0,0.65), inset 0 0 0 1px rgba(255,255,255,0.08)', maxHeight: '420px' }}
+          >
+            <div className="px-4 pt-3 pb-2 shrink-0 border-b border-white/[0.06] flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400/80 shrink-0 animate-pulse" />
+              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Up Next</p>
+              {currentTrackIndex != null && songs.slice(currentTrackIndex + 1).length > 0 && (
+                <span className="ml-auto text-[10px] text-gray-600 tabular-nums">{songs.slice(currentTrackIndex + 1).length} tracks</span>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowUpNext(false)}
+                className="text-gray-600 hover:text-gray-300 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-2 py-2">
+              <UpNextPanel
+                songs={songs}
+                currentTrackIndex={currentTrackIndex}
+                onPlaySong={handlePlaySongClick}
+                onRemoveSong={handleRemoveFromQueue}
+                onReorder={handleReorderQueue}
+                onEditMetadata={handleEditQueueSong}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
 
       {/* Modals */}
       <AnimatePresence>
@@ -1844,43 +2142,106 @@ function App() {
             <motion.aside
               initial={{ x: 340, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 340, opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="fixed right-4 top-4 bottom-4 z-50 w-[330px] rounded-2xl border border-white/10 bg-[#0f1117]/90 backdrop-blur-xl p-4 flex flex-col gap-4 glass-card"
+              className="fixed right-4 top-4 bottom-4 z-50 w-[340px] rounded-2xl border border-white/10 bg-[#0f1117]/90 backdrop-blur-xl p-4 flex flex-col gap-3 glass-card overflow-y-auto"
             >
-              <div className="flex items-center justify-between">
-                <h3 className="section-title text-sm text-cyan-200">Account</h3>
-                <button type="button" onClick={() => setShowAccountDrawer(false)} className="text-xs text-gray-400 hover:text-white">Close</button>
+              <div className="flex items-center justify-between shrink-0">
+                <h3 className="text-sm font-semibold text-white tracking-wide">Account</h3>
+                <button type="button" onClick={() => setShowAccountDrawer(false)} className="text-xs text-gray-500 hover:text-white transition-colors">Close</button>
               </div>
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                <p className="text-sm text-white font-medium">{user?.email}</p>
-                <p className="text-xs text-gray-400 mt-1">Futuristic Listener Profile</p>
-                <p className="text-[11px] text-gray-500 mt-2">Theme: {theme}</p>
-                <button
-                  type="button"
-                  onClick={() => supabase.auth.signOut()}
-                  className="mt-3 text-xs text-red-400 hover:text-red-300"
-                >
-                  Sign out
-                </button>
+
+              {/* Profile card */}
+              <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 flex items-center gap-4">
+                <label className="relative cursor-pointer group shrink-0">
+                  <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white/20 group-hover:border-violet-400/60 transition-colors flex items-center justify-center bg-white/[0.06]">
+                    {profilePicUrl
+                      ? <img src={profilePicUrl} alt="Profile" className="w-full h-full object-cover" />
+                      : <UserCircle2 className="w-8 h-8 text-gray-600" />
+                    }
+                  </div>
+                  <span className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <ImagePlus className="w-4 h-4 text-white" />
+                  </span>
+                  <input type="file" accept="image/*" className="hidden" onChange={handleProfilePicUpload} />
+                </label>
+                <div className="flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Display name"
+                    className="bg-transparent text-sm text-white font-medium w-full outline-none border-b border-white/10 focus:border-violet-400/60 pb-0.5 transition-colors placeholder-gray-600"
+                  />
+                  <p className="text-xs text-gray-500 truncate mt-1">{user?.email}</p>
+                  {profilePicUrl && (
+                    <button type="button" onClick={() => { setProfilePicUrl(null); safeSetStorage('listenwell-profile-pic', null) }} className="text-[10px] text-red-400/70 hover:text-red-400 mt-1 transition-colors">Remove photo</button>
+                  )}
+                </div>
               </div>
-              <div className="flex-1 min-h-0">
-                <p className="text-xs text-cyan-200 mb-2">Saved Presets</p>
-                <div className="space-y-2 max-h-[60vh] overflow-auto pr-1">
+
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Songs', value: songs.length },
+                  { label: 'Loved', value: lovedSongIds.length },
+                  { label: 'Plays', value: Object.values(playCounts).reduce((a, b) => a + b, 0) },
+                ].map(({ label, value }) => (
+                  <div key={label} className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5 text-center">
+                    <p className="text-base font-semibold text-white tabular-nums">{value}</p>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">{label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Appearance shortcuts */}
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-2">
+                <p className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">Quick settings</p>
+                <div className="flex items-center justify-between text-xs text-gray-300">
+                  <span>Theme</span>
+                  <span className="capitalize text-violet-300">{theme}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-300">
+                  <span>Crossfade</span>
+                  <span className="text-violet-300">{crossfadeDuration === 0 ? 'Off' : `${crossfadeDuration}ms`}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-300">
+                  <span>Vol. normalisation</span>
+                  <span className={volumeNormalization ? 'text-green-400' : 'text-gray-500'}>{volumeNormalization ? 'On' : 'Off'}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-300">
+                  <span>Art color</span>
+                  <span className={artColorExtract ? 'text-green-400' : 'text-gray-500'}>{artColorExtract ? 'On' : 'Off'}</span>
+                </div>
+              </div>
+
+              {/* Saved Presets */}
+              <div className="flex-1 min-h-0 flex flex-col gap-2">
+                <p className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">Saved presets</p>
+                <div className="space-y-2 overflow-auto pr-0.5" style={{ maxHeight: '28vh' }}>
                   {savedPresets.length === 0 ? (
-                    <p className="text-xs text-gray-500">No saved presets yet.</p>
+                    <p className="text-xs text-gray-600">No saved presets yet. Use Settings → Save current profile preset.</p>
                   ) : (
                     savedPresets.map((preset) => (
-                      <div key={preset.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
-                        <p className="text-xs text-white mb-1">{preset.name}</p>
-                        <p className="text-[10px] text-gray-400 mb-2">{preset.theme} · {preset.eqPreset} · {Math.min(preset.playbackRate, 1).toFixed(2)}x</p>
+                      <div key={preset.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5">
+                        <p className="text-xs text-white mb-0.5">{preset.name}</p>
+                        <p className="text-[10px] text-gray-500 mb-2">{preset.theme} · {preset.eqPreset} · {Math.min(preset.playbackRate, 1).toFixed(2)}×</p>
                         <div className="flex gap-2">
-                          <button type="button" onClick={() => applyPreset(preset)} className="flex-1 text-center py-1 rounded-md border border-cyan-300/50 text-cyan-200 text-[11px]">Apply</button>
-                          <button type="button" onClick={() => setSavedPresets((prev) => prev.filter((item) => item.id !== preset.id))} className="px-2 py-1 rounded-md border border-white/20 text-gray-300 text-[11px]">Delete</button>
+                          <button type="button" onClick={() => applyPreset(preset)} className="flex-1 text-center py-1 rounded-lg border border-violet-400/40 text-violet-300 text-[11px] hover:bg-violet-500/10 transition-colors">Apply</button>
+                          <button type="button" onClick={() => setSavedPresets((prev) => prev.filter((item) => item.id !== preset.id))} className="px-2.5 py-1 rounded-lg border border-white/15 text-gray-400 text-[11px] hover:bg-white/[0.06] transition-colors">Delete</button>
                         </div>
                       </div>
                     ))
                   )}
                 </div>
               </div>
+
+              {/* Sign out */}
+              <button
+                type="button"
+                onClick={() => supabase.auth.signOut()}
+                className="w-full mt-1 py-2 rounded-xl border border-red-500/20 text-red-400/80 text-xs hover:border-red-400/40 hover:bg-red-500/[0.06] hover:text-red-300 transition-colors"
+              >
+                Sign out
+              </button>
             </motion.aside>
           </>
         )}

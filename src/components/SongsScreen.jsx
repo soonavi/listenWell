@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
-import { motion } from 'framer-motion'
-import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil } from 'lucide-react'
 import { GooeyInput } from '@/components/ui/gooey-input'
 
 function SongsScreen({
@@ -30,14 +30,28 @@ function SongsScreen({
   onDeleteSong,
   onParallaxMove,
   onParallaxLeave,
+  onEditSong,
+  songsBgUrl = null,
+  songsBgBlur = 8,
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [contextMenu, setContextMenu] = useState(null) // { x, y, songId, songIndex }
+  const [sortOpen, setSortOpen] = useState(false)
+  const [bgMouse, setBgMouse] = useState({ x: 50, y: 50 })
+  const sortRef = useRef(null)
   const gridViewportRef = useRef(null)
   const normalizedQuery = searchQuery.trim().toLowerCase()
+
+  // Close sort dropdown on outside click
+  useEffect(() => {
+    if (!sortOpen) return
+    const close = (e) => { if (sortRef.current && !sortRef.current.contains(e.target)) setSortOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [sortOpen])
 
   // Close context menu on any click/scroll
   useEffect(() => {
@@ -117,19 +131,48 @@ function SongsScreen({
         {/* Toolbar */}
         <div className="mb-3 shrink-0 flex items-center gap-2">
           {/* Sort dropdown */}
-          <div className="relative shrink-0">
-            <select
-              value={sortBy}
-              onChange={(e) => onChangeSortBy(e.target.value)}
-              className="sort-select appearance-none border border-white/10 text-gray-400 text-xs rounded-full pl-3.5 pr-7 py-1.5 focus:outline-none focus:border-violet-500/50 cursor-pointer transition-colors"
+          <div className="relative shrink-0" ref={sortRef}>
+            <button
+              type="button"
+              onClick={() => setSortOpen((v) => !v)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#9ca3af' }}
+              className="border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-xs rounded-full pl-3.5 pr-2.5 py-1.5 transition-colors"
             >
-              <option value="default">Default</option>
-              <option value="title">Title</option>
-              <option value="artist">Artist</option>
-              <option value="most-played">Most played</option>
-              <option value="discover">Discover</option>
-            </select>
-            <ChevronDown className="w-3 h-3 text-gray-600 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              {{ default: 'Default', title: 'Title', artist: 'Artist', 'most-played': 'Most played', discover: 'Discover' }[sortBy]}
+              <motion.span animate={{ rotate: sortOpen ? 180 : 0 }} transition={{ duration: 0.18 }} style={{ display: 'flex' }}>
+                <ChevronDown className="w-3 h-3" />
+              </motion.span>
+            </button>
+
+            <AnimatePresence>
+              {sortOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                  transition={{ duration: 0.15, ease: 'easeOut' }}
+                  className="absolute left-0 top-full mt-1.5 z-50 min-w-[130px] rounded-xl border border-white/10 bg-[#13111a] backdrop-blur-xl shadow-xl shadow-black/50 overflow-hidden"
+                >
+                  {[
+                    { value: 'default', label: 'Default' },
+                    { value: 'title', label: 'Title' },
+                    { value: 'artist', label: 'Artist' },
+                    { value: 'most-played', label: 'Most played' },
+                    { value: 'discover', label: 'Discover' },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => { onChangeSortBy(value); setSortOpen(false) }}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 14px', color: sortBy === value ? '#a78bfa' : '#9ca3af' }}
+                      className={`text-xs transition-colors hover:bg-white/[0.06] ${sortBy === value ? 'bg-violet-500/10' : ''}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Search */}
@@ -162,8 +205,30 @@ function SongsScreen({
             <button type="button" onClick={onGoToUpload} className="px-4 py-2 rounded-full bg-white text-black text-xs font-medium hover:bg-gray-100 transition">Upload music</button>
           </div>
         ) : (
-          <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4 glass-card parallax-card song-grid-shell" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
-            <div ref={gridViewportRef} className="h-full overflow-y-auto">
+          <div
+            className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4 glass-card parallax-card song-grid-shell relative overflow-hidden"
+            onMouseMove={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              setBgMouse({ x: (e.clientX - rect.left) / rect.width * 100, y: (e.clientY - rect.top) / rect.height * 100 })
+              onParallaxMove(e)
+            }}
+            onMouseLeave={(e) => { setBgMouse({ x: 50, y: 50 }); onParallaxLeave(e) }}
+          >
+            {songsBgUrl && (
+              <div
+                aria-hidden
+                className="absolute inset-0 z-0 pointer-events-none"
+                style={{
+                  backgroundImage: `url(${songsBgUrl})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  filter: `blur(${songsBgBlur}px)`,
+                  transform: `translate(${(bgMouse.x - 50) * -0.04}%, ${(bgMouse.y - 50) * -0.04}%) scale(1.08)`,
+                  transition: 'transform 200ms ease-out',
+                }}
+              />
+            )}
+            <div ref={gridViewportRef} className="h-full overflow-y-auto relative z-[1]">
               <div style={{ paddingTop: `${paddingTop}px`, paddingBottom: `${paddingBottom}px` }}>
                 <div className="grid" style={{ gridTemplateColumns: `repeat(${virtualColumns}, minmax(0, 1fr))`, gap: `${virtualGap}px` }}>
               {renderedItems.map((song) => {
@@ -280,43 +345,56 @@ function SongsScreen({
         ) : <p className="text-sm text-gray-500">Select a track to edit its details.</p>}
       </section>
 
-      {/* Right-click context menu */}
+      {/* Right-click context menu — glassmorphism */}
       {contextMenu && (
         <div
-          className="fixed z-[400] min-w-[210px] rounded-xl border border-white/12 bg-[#0e1016]/96 backdrop-blur-xl shadow-2xl py-1.5 overflow-hidden"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          className="fixed z-[400] min-w-[220px] rounded-2xl border border-white/15 backdrop-blur-2xl p-1.5 flex flex-col gap-0.5"
+          style={{ left: contextMenu.x, top: contextMenu.y, background: 'rgba(12,12,16,0.88)', boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.07)' }}
           onClick={(e) => e.stopPropagation()}
         >
+          <div className="px-3 pt-1.5 pb-1">
+            <p className="text-[9px] uppercase tracking-widest text-gray-600">Track actions</p>
+          </div>
           <button
             type="button"
             onClick={() => { onAddToQueue?.(contextMenu.songId); setContextMenu(null) }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-200 hover:bg-white/10 transition-colors text-left"
+            className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-sm text-white transition-colors text-left"
           >
-            <ListPlus className="w-4 h-4 shrink-0 text-gray-400" />
+            <ListPlus className="w-4 h-4 shrink-0 text-gray-500" />
             Add to queue
+          </button>
+          <button
+            type="button"
+            onClick={() => { onEditSong?.(contextMenu.songIndex); setContextMenu(null) }}
+            className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-sm text-white transition-colors text-left"
+          >
+            <Pencil className="w-4 h-4 shrink-0 text-gray-500" />
+            Edit metadata
           </button>
           {playlists.length > 0 && (
             <>
-              <div className="h-px bg-white/10 my-1" />
-              <p className="px-4 py-1 text-[10px] uppercase tracking-widest text-gray-600">Add to playlist</p>
+              <div className="h-px bg-white/[0.07] mx-2 my-0.5" />
+              <div className="px-3 py-1">
+                <p className="text-[9px] uppercase tracking-widest text-gray-600">Add to playlist</p>
+              </div>
               {playlists.map((pl) => (
                 <button
                   key={pl.id}
                   type="button"
                   onClick={() => { onAddSongToPlaylist?.(contextMenu.songId, pl.id); setContextMenu(null) }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/10 transition-colors text-left"
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-sm text-white transition-colors text-left"
                 >
-                  <ListMusic className="w-4 h-4 shrink-0 text-gray-500" />
+                  <ListMusic className="w-3.5 h-3.5 shrink-0 text-gray-600" />
                   {pl.name}
                 </button>
               ))}
             </>
           )}
-          <div className="h-px bg-white/10 my-1" />
+          <div className="h-px bg-white/[0.07] mx-2 my-0.5" />
           <button
             type="button"
             onClick={() => { onDeleteSong?.(contextMenu.songId); setContextMenu(null) }}
-            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors text-left"
+            className="w-full flex items-center gap-3 rounded-xl hover:bg-red-500/10 px-3 py-2.5 text-sm text-red-400 transition-colors text-left"
           >
             <Trash2 className="w-4 h-4 shrink-0" />
             Remove track
