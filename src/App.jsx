@@ -664,7 +664,11 @@ function App() {
   }
 
   const handleAddToQueue = useCallback((songId) => {
-    setSongQueue((prev) => prev.includes(songId) ? prev : [...prev, songId])
+    setSongQueue((prev) => [...prev, songId])
+  }, [])
+
+  const handleRemoveFromManualQueue = useCallback((idx) => {
+    setSongQueue((prev) => prev.filter((_, i) => i !== idx))
   }, [])
 
   const handleReorderQueue = useCallback((fromIndex, toIndex) => {
@@ -872,14 +876,6 @@ function App() {
     return () => window.removeEventListener('mousedown', onDown)
   }, [showLogoMenu])
 
-  useEffect(() => {
-    if (!showNowPlayingAddMenu) return
-    const onDown = (event) => {
-      if (!nowPlayingMenuRef.current?.contains(event.target)) setShowNowPlayingAddMenu(false)
-    }
-    window.addEventListener('mousedown', onDown)
-    return () => window.removeEventListener('mousedown', onDown)
-  }, [showNowPlayingAddMenu])
 
 
   useEffect(() => {
@@ -1018,7 +1014,7 @@ function App() {
   }, [])
 
   // Keep stateRef fresh so the keyboard handler always reads current state
-  stateRef.current = { isPlaying, currentTrackIndex, songs, shuffle, repeat }
+  stateRef.current = { isPlaying, currentTrackIndex, songs, shuffle, repeat, songQueue }
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -1084,8 +1080,9 @@ function App() {
     if (songs.length === 0) return
     const { shuffle: sh, currentTrackIndex: cur, songs: ss } = stateRef.current
     // Drain the manual queue first
-    if (songQueue.length > 0) {
-      const [nextId, ...rest] = songQueue
+    const { songQueue: sq } = stateRef.current
+    if (sq.length > 0) {
+      const [nextId, ...rest] = sq
       setSongQueue(rest)
       const idx = ss.findIndex((s) => s.id === nextId)
       if (idx !== -1) {
@@ -1269,9 +1266,9 @@ function App() {
                 <button
                   type="button"
                   onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }}
-                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left"
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left whitespace-nowrap"
                 >
-                  <UserCircle2 className="w-5 h-5 shrink-0 text-gray-400" />
+                  <UserCircle2 className="w-5 h-5 shrink-0 text-white/80" />
                   <span>Account</span>
                 </button>
                 <button
@@ -1281,9 +1278,9 @@ function App() {
                     setShowAboutModal(true)
                     setShowLogoMenu(false)
                   }}
-                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left"
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left whitespace-nowrap"
                 >
-                  <Info className="w-5 h-5 shrink-0 text-gray-400" />
+                  <Info className="w-5 h-5 shrink-0 text-white/80" />
                   <span>About</span>
                 </button>
                 <button
@@ -1293,9 +1290,9 @@ function App() {
                     setShowListeningHistoryModal(true)
                     setShowLogoMenu(false)
                   }}
-                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left"
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left whitespace-nowrap"
                 >
-                  <History className="w-5 h-5 shrink-0 text-gray-400" />
+                  <History className="w-5 h-5 shrink-0 text-white/80" />
                   <span>Listening history</span>
                 </button>
               </motion.div>
@@ -1860,7 +1857,9 @@ function App() {
             {nowPlaying?.artist || (nowPlaying ? 'Unknown artist' : '—')}
           </p>
           {showNowPlayingAddMenu && nowPlaying && (
-            <div className="absolute z-30 left-0 bottom-[calc(100%+1rem)] w-64 max-h-[min(50vh,320px)] overflow-y-auto rounded-2xl border border-white/15 bg-white/[0.04] backdrop-blur-2xl p-1.5 flex flex-col gap-0.5" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.07)' }}>
+            <>
+            <div className="fixed inset-0 z-[29]" onClick={() => setShowNowPlayingAddMenu(false)} />
+            <div className="absolute z-[30] left-0 bottom-[calc(100%+1rem)] w-64 max-h-[min(50vh,320px)] overflow-y-auto rounded-2xl border border-white/15 bg-white/[0.04] backdrop-blur-2xl p-1.5 flex flex-col gap-0.5" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.07)' }}>
               <div className="px-3 pt-1.5 pb-1">
                 <p className="text-[9px] uppercase tracking-widest text-gray-600">Add to</p>
               </div>
@@ -1903,6 +1902,7 @@ function App() {
                 <span className="text-sm text-white whitespace-nowrap">+ New playlist &amp; add</span>
               </button>
             </div>
+            </>
           )}
         </div>
 
@@ -2018,10 +2018,10 @@ function App() {
         {/* Profile sphere + circular EQ */}
         <button
           type="button"
-          onClick={() => nowPlaying && setShowNowPlaying(true)}
-          className="relative shrink-0 ml-6 flex items-center justify-center"
+          onClick={() => setShowAccountDrawer(true)}
+          className="relative shrink-0 ml-auto flex items-center justify-center"
           style={{ width: 130, height: 130 }}
-          title="Now playing"
+          title="Profile"
         >
           <canvas
             ref={circularEqCanvasRef}
@@ -2054,8 +2054,8 @@ function App() {
             <div className="px-4 pt-3 pb-2 shrink-0 border-b border-white/[0.06] flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-400/80 shrink-0 animate-pulse" />
               <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Up Next</p>
-              {currentTrackIndex != null && songs.slice(currentTrackIndex + 1).length > 0 && (
-                <span className="ml-auto text-[10px] text-gray-600 tabular-nums">{songs.slice(currentTrackIndex + 1).length} tracks</span>
+              {(songQueue.length > 0 || (currentTrackIndex != null && songs.slice(currentTrackIndex + 1).length > 0)) && (
+                <span className="ml-auto text-[10px] text-gray-600 tabular-nums">{songQueue.length + (currentTrackIndex != null ? songs.slice(currentTrackIndex + 1).length : 0)} tracks</span>
               )}
               <button
                 type="button"
@@ -2069,8 +2069,10 @@ function App() {
               <UpNextPanel
                 songs={songs}
                 currentTrackIndex={currentTrackIndex}
+                songQueue={songQueue}
                 onPlaySong={handlePlaySongClick}
                 onRemoveSong={handleRemoveFromQueue}
+                onRemoveFromManualQueue={handleRemoveFromManualQueue}
                 onReorder={handleReorderQueue}
                 onEditMetadata={handleEditQueueSong}
               />
