@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
-import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil } from 'lucide-react'
+import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square } from 'lucide-react'
 import { GooeyInput } from '@/components/ui/gooey-input'
 
 function SongsScreen({
@@ -33,6 +33,8 @@ function SongsScreen({
   onEditSong,
   songsBgUrl = null,
   songsBgBlur = 8,
+  tileSize = 'medium',
+  onChangeTileSize,
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [scrollTop, setScrollTop] = useState(0)
@@ -104,9 +106,14 @@ function SongsScreen({
     }
   }, [visibleSongs.length])
 
-  const virtualColumns = viewportWidth >= 1024 ? 5 : viewportWidth >= 768 ? 4 : viewportWidth >= 640 ? 3 : 2
+  // Tile height is art (colWidth - 20px padding) + text block (60px incl. padding);
+  // row stride adds the grid gap
+  const TILE_TARGET = { small: 160, medium: 220, large: 300 }
+  const tileTarget = TILE_TARGET[tileSize] || TILE_TARGET.medium
+  const virtualColumns = Math.max(1, Math.round(viewportWidth / tileTarget))
   const virtualGap = viewportWidth >= 640 ? 20 : 16
-  const rowHeight = viewportWidth >= 640 ? 285 : 245
+  const colWidth = viewportWidth > 0 ? (viewportWidth - virtualGap * (virtualColumns - 1)) / virtualColumns : tileTarget
+  const rowHeight = Math.round(colWidth + 60 + virtualGap)
   const virtualItems = useMemo(() => [...visibleSongs, { id: '__upload__', uploadTile: true }], [visibleSongs])
   const rowCount = Math.ceil(virtualItems.length / virtualColumns)
   const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - 1)
@@ -174,6 +181,29 @@ function SongsScreen({
               )}
             </AnimatePresence>
           </div>
+
+          {/* Tile size */}
+          {onChangeTileSize && (
+            <div className="shrink-0 flex items-center rounded-full border border-white/10 bg-white/[0.04] p-0.5" role="group" aria-label="Tile size">
+              {[
+                { value: 'small', label: 'Small tiles', Icon: Grid3x3 },
+                { value: 'medium', label: 'Medium tiles', Icon: Grid2x2 },
+                { value: 'large', label: 'Large tiles', Icon: Square },
+              ].map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={tileSize === value}
+                  onClick={() => onChangeTileSize(value)}
+                  className={`p-1.5 rounded-full transition-colors ${tileSize === value ? 'bg-violet-500/15 text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Search */}
           <div className="flex-1 flex items-center justify-end">

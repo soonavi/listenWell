@@ -31,7 +31,7 @@ All state lives in `src/App.jsx` (~1900 lines). There is no Context API, Redux, 
 
 ### Data persistence
 - **Songs**: Supabase Storage (`audio-files` bucket, path `<user_id>/<track_id>/<file>`, cover art at `<user_id>/<track_id>/cover`) plus a `tracks` table row per song; loaded on login via 7-day signed URLs, so the library follows the account across devices
-- **Playlists, loved songs, and all settings**: `localStorage` — per-browser, not synced across devices
+- **Playlists, loved songs, play counts, recents, and settings**: synced to the `user_state` table (one JSONB row per user) — loaded on login, written debounced on change; `localStorage` remains the local cache and offline fallback
 - If a Supabase upload fails, the song falls back to an in-memory Object URL (playable for the session only) and the error is surfaced in a toast
 - PWA: `public/sw.js` (network-first navigations, cache-first hashed assets), `public/manifest.json`
 

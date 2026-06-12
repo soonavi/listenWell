@@ -236,6 +236,7 @@ function App() {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null)
   const [songFilter, setSongFilter] = useState('all')
   const [songSortBy, setSongSortBy] = useState('default')
+  const [songTileSize, setSongTileSize] = useState(() => safeGetStorage('listenwell-tile-size', 'medium'))
   const [lovedSongIds, setLovedSongIds] = useState(() => parseStoredJSON('listenwell-loved', []))
   const [showNowPlayingAddMenu, setShowNowPlayingAddMenu] = useState(false)
   const [shuffle, setShuffle] = useState(false)
@@ -899,6 +900,98 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-crossfade', String(crossfadeDuration)) }, [crossfadeDuration])
   useEffect(() => { safeSetStorage('listenwell-art-color', String(artColorExtract)) }, [artColorExtract])
   useEffect(() => { if (displayName) safeSetStorage('listenwell-display-name', displayName) }, [displayName])
+  useEffect(() => { safeSetStorage('listenwell-tile-size', songTileSize) }, [songTileSize])
+
+  // Sync per-user state (playlists, loved, settings) with Supabase so it
+  // follows the account across devices. localStorage stays as the local cache.
+  const userStateLoadedRef = useRef(false)
+  const userStateTimerRef = useRef(null)
+
+  const buildSyncedState = () => ({
+    playlists,
+    lovedSongIds,
+    playCounts,
+    recentItems,
+    theme,
+    repeat,
+    volumeNormalization,
+    crossfadeDuration,
+    artColorExtract,
+    eqRingColor,
+    customEqGains,
+    savedPresets,
+    auroraIntensity,
+    glowSoftness,
+    blurAmount,
+    profilePicUrl,
+    displayName,
+    songTileSize,
+  })
+
+  useEffect(() => {
+    userStateLoadedRef.current = false
+    if (!user) return
+    let cancelled = false
+
+    const loadUserState = async () => {
+      const { data: row, error } = await supabase
+        .from('user_state')
+        .select('data')
+        .eq('user_id', user.id)
+        .maybeSingle()
+      if (cancelled) return
+      if (error) {
+        // Leave the loaded flag unset so a failed read is never overwritten
+        console.error('Failed to load synced state:', error.message)
+        return
+      }
+      const d = row?.data
+      if (d && typeof d === 'object') {
+        if (Array.isArray(d.playlists)) setPlaylists(d.playlists)
+        if (Array.isArray(d.lovedSongIds)) setLovedSongIds(d.lovedSongIds)
+        if (d.playCounts && typeof d.playCounts === 'object') setPlayCounts(d.playCounts)
+        if (Array.isArray(d.recentItems)) setRecentItems(d.recentItems)
+        if (typeof d.theme === 'string') setTheme(normalizeThemeId(d.theme))
+        if (typeof d.repeat === 'string') setRepeat(d.repeat)
+        if (typeof d.volumeNormalization === 'boolean') setVolumeNormalization(d.volumeNormalization)
+        if (typeof d.crossfadeDuration === 'number') setCrossfadeDuration(d.crossfadeDuration)
+        if (typeof d.artColorExtract === 'boolean') setArtColorExtract(d.artColorExtract)
+        if (typeof d.eqRingColor === 'string') setEqRingColor(d.eqRingColor)
+        if (Array.isArray(d.customEqGains) && d.customEqGains.length === EQ_BANDS.length) setCustomEqGains(d.customEqGains.map(Number))
+        if (Array.isArray(d.savedPresets)) setSavedPresets(d.savedPresets)
+        if (typeof d.auroraIntensity === 'number') setAuroraIntensity(d.auroraIntensity)
+        if (typeof d.glowSoftness === 'number') setGlowSoftness(d.glowSoftness)
+        if (typeof d.blurAmount === 'number') setBlurAmount(d.blurAmount)
+        if (typeof d.profilePicUrl === 'string' || d.profilePicUrl === null) setProfilePicUrl(d.profilePicUrl)
+        if (typeof d.displayName === 'string') setDisplayName(d.displayName)
+        if (typeof d.songTileSize === 'string') setSongTileSize(d.songTileSize)
+      } else {
+        // First login from this account: migrate this browser's local state up
+        const { error: pushError } = await supabase
+          .from('user_state')
+          .upsert({ user_id: user.id, data: buildSyncedState(), updated_at: new Date().toISOString() })
+        if (pushError) console.error('Failed to sync state:', pushError.message)
+      }
+      if (!cancelled) userStateLoadedRef.current = true
+    }
+
+    loadUserState()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+
+  useEffect(() => {
+    if (!user || !userStateLoadedRef.current) return
+    window.clearTimeout(userStateTimerRef.current)
+    userStateTimerRef.current = window.setTimeout(async () => {
+      const { error } = await supabase
+        .from('user_state')
+        .upsert({ user_id: user.id, data: buildSyncedState(), updated_at: new Date().toISOString() })
+      if (error) console.error('Failed to sync state:', error.message)
+    }, 1200)
+    return () => window.clearTimeout(userStateTimerRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize])
 
   // Apply per-song gain normalisation whenever the track changes
   useEffect(() => {
@@ -1614,6 +1707,8 @@ function App() {
                 sortBy={songSortBy}
                 lovedSongIds={lovedSongIds}
                 playCounts={playCounts}
+                tileSize={songTileSize}
+                onChangeTileSize={setSongTileSize}
                 onChangeSongFilter={setSongFilter}
                 onChangeSortBy={setSongSortBy}
                 onToggleLoved={toggleLovedSong}
