@@ -187,7 +187,7 @@ function HomeScreen({
                         type="button"
                         onClick={() => onToggleLoved(song.id)}
                         aria-label={`Remove ${song.title || song.fileName} from loved`}
-                        className="shrink-0 p-2 mr-1 rounded-md text-violet-300 hover:text-violet-200 hover:bg-white/[0.06] transition-colors duration-150"
+                        className="shrink-0 p-2 mr-1 rounded-md text-pink-400 hover:text-pink-300 hover:bg-white/[0.06] transition-colors duration-150"
                       >
                         <Heart className="w-4 h-4 fill-current" />
                       </button>

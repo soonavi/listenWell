@@ -246,10 +246,13 @@ function SongsScreen({
                 }
                 const i = songs.findIndex((s) => s.id === song.id)
                 return (
-                <motion.button
+                <motion.div
                   key={song.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${song.title || song.fileName} details`}
                   onClick={() => onSelectSong(i)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectSong(i) } }}
                   onContextMenu={(e) => openContextMenu(e, song, i)}
                   className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-2.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'}`}
                   whileHover={{ y: -4, scale: 1.03 }}
@@ -279,7 +282,7 @@ function SongsScreen({
                       <Heart className="w-5 h-5" fill={lovedSongIds.includes(song.id) ? 'currentColor' : 'none'} />
                     </button>
                   </div>
-                </motion.button>
+                </motion.div>
               )})}
                 </div>
               </div>

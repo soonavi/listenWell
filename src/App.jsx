@@ -1866,10 +1866,13 @@ function App() {
                 <span className="font-medium">Volume normalisation</span>
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={volumeNormalization}
+                  aria-label="Volume normalisation"
                   onClick={() => setVolumeNormalization((prev) => !prev)}
-                  className={`relative w-9 h-5 rounded-full transition-colors ${volumeNormalization ? 'bg-violet-600' : 'bg-white/20'}`}
+                  className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${volumeNormalization ? 'bg-violet-600' : 'bg-white/20'}`}
                 >
-                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${volumeNormalization ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  <span className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${volumeNormalization ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
                 </button>
               </div>
               <div className="flex flex-col gap-1.5">
@@ -2035,10 +2038,13 @@ function App() {
                 </div>
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={artColorExtract}
+                  aria-label="Art color extraction"
                   onClick={() => setArtColorExtract((prev) => !prev)}
                   className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${artColorExtract ? 'bg-violet-600' : 'bg-white/20'}`}
                 >
-                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${artColorExtract ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  <span className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${artColorExtract ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
                 </button>
               </div>
               <button
@@ -2158,6 +2164,7 @@ function App() {
               type="button"
               onClick={handlePrev}
               disabled={songs.length === 0}
+              aria-label="Previous track"
               className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipBack className="w-6 h-6" />
@@ -2166,6 +2173,7 @@ function App() {
               type="button"
               onClick={handlePlayPause}
               disabled={songs.length === 0}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
               className="magnetic-hover ring-pulse w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               {isPlaying ? <Pause className="w-5 h-5" strokeWidth={1.75} /> : <Play className="w-5 h-5 ml-0.5" strokeWidth={1.75} />}
@@ -2174,6 +2182,7 @@ function App() {
               type="button"
               onClick={handleNext}
               disabled={songs.length === 0}
+              aria-label="Next track"
               className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipForward className="w-6 h-6" />
@@ -2198,6 +2207,7 @@ function App() {
               value={Math.min(currentTime, duration || 0)}
               onInput={handleSeek}
               onChange={handleSeek}
+              aria-label="Seek"
               className="flex-1 h-2 rounded-full appearance-none bg-white/25 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
             />
             <span className="w-10 shrink-0 tabular-nums">{formatTime(duration)}</span>
@@ -2220,6 +2230,7 @@ function App() {
             value={volume}
             onInput={handleVolumeChange}
             onChange={handleVolumeChange}
+            aria-label="Volume"
             className="w-20 sm:w-24 h-2 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
           />
           <button
@@ -2236,6 +2247,7 @@ function App() {
           ref={settingsButtonRef}
           type="button"
           onClick={() => (showSettings ? closeSettingsPanel() : openSettingsPanel())}
+          aria-label="Settings"
           className="magnetic-hover ml-1 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
         >
           <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
