@@ -183,11 +183,10 @@ function SongsScreen({
               onValueChange={setSearchQuery}
               collapsedWidth={44}
               expandedWidth={220}
-              expandedOffset={44}
               classNames={{
-                trigger: 'bg-white/[0.05] text-gray-400 ring-white/[0.12] !px-2.5 hover:ring-white/25 focus-visible:ring-violet-500/50 focus-visible:ring-offset-[#0c0c0e]',
+                trigger: 'bg-white/[0.05] text-gray-400 ring-white/[0.12] !px-2.5 hover:ring-white/25 focus-visible:ring-white/30 focus-visible:ring-offset-0',
                 bubbleSurface: 'bg-white/[0.05] ring-white/[0.12]',
-                input: 'text-[#f3f4f6] placeholder:text-[#6b7280] text-xs',
+                input: 'gooey-search-input text-[#f3f4f6] placeholder:text-[#6b7280] text-xs',
               }}
             />
           </div>
@@ -348,8 +347,8 @@ function SongsScreen({
       {/* Right-click context menu — glassmorphism */}
       {contextMenu && (
         <div
-          className="fixed z-[400] min-w-[220px] rounded-2xl border border-white/15 backdrop-blur-2xl p-1.5 flex flex-col gap-0.5"
-          style={{ left: contextMenu.x, top: contextMenu.y, background: 'rgba(12,12,16,0.88)', boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.07)' }}
+          className="menu-panel fixed z-[400] min-w-[220px] rounded-2xl border border-white/15 backdrop-blur-2xl p-1.5 flex flex-col gap-0.5"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="px-3 pt-1.5 pb-1">
@@ -371,12 +370,21 @@ function SongsScreen({
             <Pencil className="w-4 h-4 shrink-0 text-gray-500" />
             Edit metadata
           </button>
+          <div className="h-px bg-white/[0.07] mx-2 my-0.5" />
+          <div className="px-3 py-1">
+            <p className="text-[9px] uppercase tracking-widest text-gray-600">Add to playlist</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { onToggleLoved?.(contextMenu.songId); setContextMenu(null) }}
+            className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-sm text-white transition-colors text-left"
+          >
+            <Heart className={`w-3.5 h-3.5 shrink-0 ${lovedSongIds.includes(contextMenu.songId) ? 'text-pink-400' : 'text-gray-600'}`} fill={lovedSongIds.includes(contextMenu.songId) ? 'currentColor' : 'none'} />
+            Loved Songs
+            {lovedSongIds.includes(contextMenu.songId) && <span className="ml-auto text-[10px] text-gray-500">Added</span>}
+          </button>
           {playlists.length > 0 && (
             <>
-              <div className="h-px bg-white/[0.07] mx-2 my-0.5" />
-              <div className="px-3 py-1">
-                <p className="text-[9px] uppercase tracking-widest text-gray-600">Add to playlist</p>
-              </div>
               {playlists.map((pl) => (
                 <button
                   key={pl.id}

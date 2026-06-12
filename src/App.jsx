@@ -34,7 +34,20 @@ import {
   Keyboard,
   Library,
   Upload,
+  SlidersVertical,
+  Speaker,
+  LayoutGrid,
 } from 'lucide-react'
+
+// Custom equalizer bands (Hz). First band is a low shelf, last a high shelf.
+const EQ_BANDS = [
+  { freq: 60, label: '60' },
+  { freq: 170, label: '170' },
+  { freq: 500, label: '500' },
+  { freq: 1500, label: '1.5k' },
+  { freq: 4500, label: '4.5k' },
+  { freq: 12000, label: '12k' },
+]
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -109,6 +122,10 @@ function normalizeThemeId(themeId) {
     dark: 'dark',
     sunset: 'sunset',
     pink: 'pink',
+    cartoon: 'cartoon',
+    terminal: 'terminal',
+    paper: 'paper',
+    blueprint: 'blueprint',
   }
   return map[themeId] || 'dark'
 }
@@ -233,6 +250,14 @@ function App() {
   const visualizerCanvasRef = useRef(null)
   const [recentItems, setRecentItems] = useState([])
   const [theme, setTheme] = useState(() => normalizeThemeId(safeGetStorage('listenwell-theme', 'dark')))
+  const [eqRingColor, setEqRingColor] = useState(() => safeGetStorage('listenwell-eq-ring-color', 'accent'))
+  const [customEqGains, setCustomEqGains] = useState(() => {
+    const stored = parseStoredJSON('listenwell-custom-eq', null)
+    return Array.isArray(stored) && stored.length === EQ_BANDS.length ? stored.map(Number) : EQ_BANDS.map(() => 0)
+  })
+  const [showGeneralSettings, setShowGeneralSettings] = useState(false)
+  const [audioOutputs, setAudioOutputs] = useState([])
+  const [outputDeviceId, setOutputDeviceId] = useState('default')
   const [accentColor, setAccentColor] = useState('139 92 246')
   const [shimmer, setShimmer] = useState({ low: 0, mid: 0, high: 0 })
   const [settingsPosition, setSettingsPosition] = useState(() => {
@@ -275,6 +300,10 @@ function App() {
   const [profilePicUrl, setProfilePicUrl] = useState(() => safeGetStorage('listenwell-profile-pic', null))
   const [displayName, setDisplayName] = useState(() => safeGetStorage('listenwell-display-name', ''))
   const circularEqCanvasRef = useRef(null)
+  const drawerEqCanvasRef = useRef(null)
+  const eqRingColorRef = useRef('accent')
+  const eqFiltersRef = useRef([])
+  const customEqGainsRef = useRef(null)
 
   // Auth effect — check session on mount and listen for changes
   useEffect(() => {
@@ -361,13 +390,28 @@ function App() {
       bass.type = 'lowshelf'
       bass.frequency.value = 200
       analyser.fftSize = 128
+      // Custom equalizer chain: low shelf, peaking mids, high shelf
+      const eqFilters = EQ_BANDS.map(({ freq }, i) => {
+        const f = ctx.createBiquadFilter()
+        f.type = i === 0 ? 'lowshelf' : i === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking'
+        f.frequency.value = freq
+        if (f.type === 'peaking') f.Q.value = 1
+        f.gain.value = customEqGainsRef.current?.[i] ?? 0
+        return f
+      })
       source.connect(gain)
       gain.connect(bass)
-      bass.connect(analyser)
+      let prev = bass
+      for (const f of eqFilters) {
+        prev.connect(f)
+        prev = f
+      }
+      prev.connect(analyser)
       analyser.connect(ctx.destination)
       sourceNodeRef.current = source
       gainNodeRef.current = gain
       bassFilterRef.current = bass
+      eqFiltersRef.current = eqFilters
       analyserRef.current = analyser
       visualizerDataRef.current = new Uint8Array(analyser.frequencyBinCount)
     }
@@ -768,6 +812,13 @@ function App() {
   useEffect(() => { ensureAudioGraph() }, [])
 
   useEffect(() => { safeSetStorage('listenwell-theme', theme) }, [theme])
+  useEffect(() => { safeSetStorage('listenwell-eq-ring-color', eqRingColor) }, [eqRingColor])
+  useEffect(() => { safeSetStorage('listenwell-custom-eq', JSON.stringify(customEqGains)) }, [customEqGains])
+
+  // Apply custom equalizer gains to the live filter chain
+  useEffect(() => {
+    eqFiltersRef.current.forEach((f, i) => { f.gain.value = customEqGains[i] ?? 0 })
+  }, [customEqGains])
   useEffect(() => { safeSetStorage('listenwell-settings-position', JSON.stringify(settingsPosition)) }, [settingsPosition])
   useEffect(() => { safeSetStorage('listenwell-presets', JSON.stringify(savedPresets)) }, [savedPresets])
   useEffect(() => { safeSetStorage('listenwell-aurora-intensity', String(auroraIntensity)) }, [auroraIntensity])
@@ -941,61 +992,53 @@ function App() {
     return () => { if (frameId) cancelAnimationFrame(frameId) }
   }, [isPlaying])
 
-  // Circular equalizer animation around profile sphere
+  // Circular equalizer animation around profile spheres (footer + account drawer)
   useEffect(() => {
-    const canvas = circularEqCanvasRef.current
-    if (!canvas) return
     let frameId
-    const draw = () => {
-      frameId = requestAnimationFrame(draw)
-      const analyser = analyserRef.current
+
+    const resolveColor = () => {
+      const setting = eqRingColorRef.current
+      if (setting && setting !== 'accent') {
+        const m = /^#?([0-9a-f]{6})$/i.exec(setting)
+        if (m) {
+          const n = parseInt(m[1], 16)
+          return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+        }
+      }
+      const accentRaw = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim() || '139 92 246'
+      return accentRaw.split(' ').map(Number)
+    }
+
+    const drawRing = (canvas, sphereR, [r, g, b], data) => {
       const ctx = canvas.getContext('2d')
       const dpr = window.devicePixelRatio || 1
       // Use actual CSS size so bars never clip regardless of DPR
-      const W = canvas.clientWidth || 130
-      const H = canvas.clientHeight || 130
+      const W = canvas.clientWidth || 112
+      const H = canvas.clientHeight || 112
       if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
         canvas.width = Math.round(W * dpr)
         canvas.height = Math.round(H * dpr)
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, W, H)
-      const accentRaw = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim() || '139 92 246'
-      const [r, g, b] = accentRaw.split(' ').map(Number)
       const cx = W / 2, cy = H / 2
-      const sphereR = 40  // half of inner sphere (w-20 = 80px)
-      const innerR = sphereR + 3
-      const maxBar = cx - innerR - 3
-      const bars = 72
-      if (!analyser) {
-        // Subtle idle pulse so the ring is always visible
-        const t = Date.now() / 1000
-        for (let i = 0; i < bars; i++) {
-          const angle = (i / bars) * 2 * Math.PI - Math.PI / 2
-          const idle = 0.04 + 0.1 * (Math.sin(t * 1.4 + i * 0.38) * 0.5 + 0.5)
-          const bLen = idle * maxBar + 1
-          const x1 = cx + innerR * Math.cos(angle)
-          const y1 = cy + innerR * Math.sin(angle)
-          const x2 = cx + (innerR + bLen) * Math.cos(angle)
-          const y2 = cy + (innerR + bLen) * Math.sin(angle)
-          ctx.beginPath()
-          ctx.moveTo(x1, y1)
-          ctx.lineTo(x2, y2)
-          ctx.strokeStyle = `rgba(${r},${g},${b},0.22)`
-          ctx.lineWidth = 1.5
-          ctx.lineCap = 'round'
-          ctx.stroke()
-        }
-        return
-      }
-      const bufLen = analyser.frequencyBinCount
-      const data = new Uint8Array(bufLen)
-      analyser.getByteFrequencyData(data)
+      const innerR = sphereR + 4
+      const maxBar = cx - innerR - 2
+      const bars = 36
+      const t = Date.now() / 1000
       for (let i = 0; i < bars; i++) {
-        const dataIdx = Math.floor((i / bars) * bufLen * 0.65)
-        const value = data[dataIdx] / 255
-        const bLen = value * maxBar + 1.5
         const angle = (i / bars) * 2 * Math.PI - Math.PI / 2
+        let value, alpha
+        if (data) {
+          const dataIdx = Math.floor((i / bars) * data.length * 0.65)
+          value = data[dataIdx] / 255
+          alpha = 0.4 + value * 0.6
+        } else {
+          // Idle pulse so the ring is always visible
+          value = 0.14 + 0.2 * (Math.sin(t * 1.4 + i * 0.7) * 0.5 + 0.5)
+          alpha = 0.45
+        }
+        const bLen = value * maxBar + 2
         const x1 = cx + innerR * Math.cos(angle)
         const y1 = cy + innerR * Math.sin(angle)
         const x2 = cx + (innerR + bLen) * Math.cos(angle)
@@ -1003,11 +1046,24 @@ function App() {
         ctx.beginPath()
         ctx.moveTo(x1, y1)
         ctx.lineTo(x2, y2)
-        ctx.strokeStyle = `rgba(${r},${g},${b},${0.35 + value * 0.65})`
-        ctx.lineWidth = 1.8
+        ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`
+        ctx.lineWidth = 2.5
         ctx.lineCap = 'round'
         ctx.stroke()
       }
+    }
+
+    const draw = () => {
+      frameId = requestAnimationFrame(draw)
+      const analyser = analyserRef.current
+      let data = null
+      if (analyser) {
+        data = new Uint8Array(analyser.frequencyBinCount)
+        analyser.getByteFrequencyData(data)
+      }
+      const color = resolveColor()
+      if (circularEqCanvasRef.current) drawRing(circularEqCanvasRef.current, 40, color, data)
+      if (drawerEqCanvasRef.current) drawRing(drawerEqCanvasRef.current, 56, color, data)
     }
     draw()
     return () => cancelAnimationFrame(frameId)
@@ -1015,6 +1071,8 @@ function App() {
 
   // Keep stateRef fresh so the keyboard handler always reads current state
   stateRef.current = { isPlaying, currentTrackIndex, songs, shuffle, repeat, songQueue }
+  eqRingColorRef.current = eqRingColor
+  customEqGainsRef.current = customEqGains
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -1203,7 +1261,7 @@ function App() {
       />
 
       {/* Header */}
-      <header className="relative z-20 shrink-0 h-16 sm:h-20 border-b border-white/10 bg-black/40 flex items-center justify-end px-4 sm:px-8">
+      <header className="app-chrome relative z-20 shrink-0 h-16 sm:h-20 border-b border-white/10 flex items-center justify-end px-4 sm:px-8">
         {/* Now Playing indicator — top left */}
         <div className="absolute left-4 sm:left-8 flex items-center gap-2 min-w-0 max-w-[260px] sm:max-w-[340px]">
           {nowPlaying ? (
@@ -1260,8 +1318,7 @@ function App() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -8, scale: 0.97 }}
                 transition={{ duration: 0.15, ease: 'easeOut' }}
-                className="absolute right-0 top-[calc(100%+0.5rem)] min-w-[290px] rounded-2xl border border-white/15 backdrop-blur-2xl p-2 flex flex-col gap-0.5 z-30"
-                style={{ background: 'rgba(12,12,16,0.92)', boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.07)' }}
+                className="menu-panel absolute right-0 top-[calc(100%+0.5rem)] min-w-[290px] rounded-2xl border border-white/15 backdrop-blur-2xl p-2 flex flex-col gap-0.5 z-30"
               >
                 <button
                   type="button"
@@ -1495,6 +1552,7 @@ function App() {
                     { id, name: trimmedName, description: description || '', coverUrl: coverUrl || null, accentColor: ac || null, songIds: [] },
                   ])
                   setSelectedPlaylistId(id)
+                  setActivePage('playlist-detail')
                 }}
                 onUpdatePlaylist={(playlistId, updates) => {
                   setPlaylists((prev) =>
@@ -1575,7 +1633,7 @@ function App() {
       </main>
 
       {/* Mobile bottom nav (visible sm and below) */}
-      <nav className="flex sm:hidden shrink-0 border-t border-white/10 bg-black/60 backdrop-blur-xl">
+      <nav className="app-chrome flex sm:hidden shrink-0 border-t border-white/10 backdrop-blur-xl">
         {NAV_TABS.map((tab) => {
           const Icon = tab.icon
           const isActive = activePage === tab.id || (tab.id === 'playlists' && activePage === 'playlist-detail')
@@ -1724,7 +1782,7 @@ function App() {
               <div className="flex flex-col gap-1.5">
                 <span className="font-medium">Scene theme</span>
                 <div className="grid grid-cols-3 gap-2">
-                  {[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'sunset', label: 'Sunset' }, { id: 'pink', label: 'Pink' }].map((scene) => (
+                  {[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'sunset', label: 'Sunset' }, { id: 'pink', label: 'Pink' }, { id: 'cartoon', label: 'Cartoon' }, { id: 'terminal', label: 'Terminal' }, { id: 'paper', label: 'Paper' }, { id: 'blueprint', label: 'Blueprint' }].map((scene) => (
                     <button
                       key={scene.id}
                       type="button"
@@ -1738,6 +1796,55 @@ function App() {
                       {scene.label}
                     </button>
                   ))}
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="font-medium">Equalizer color</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setEqRingColor('accent')}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                      eqRingColor === 'accent'
+                        ? 'border-violet-500/60 bg-violet-500/10 text-violet-100'
+                        : 'border-white/10 hover:border-white/40 text-gray-300'
+                    }`}
+                  >
+                    Accent
+                  </button>
+                  {ACCENT_PRESETS.map((preset) => (
+                    <button
+                      key={preset.hex}
+                      type="button"
+                      title={preset.label}
+                      aria-label={`Equalizer color ${preset.label}`}
+                      onClick={() => setEqRingColor(preset.hex)}
+                      className="w-5 h-5 rounded-full transition-transform hover:scale-110 shrink-0"
+                      style={{
+                        background: preset.hex,
+                        outline: eqRingColor === preset.hex ? `2px solid ${preset.hex}` : '2px solid transparent',
+                        outlineOffset: '2px',
+                      }}
+                    />
+                  ))}
+                  <label className="relative w-5 h-5 rounded-full overflow-hidden shrink-0 cursor-pointer border border-white/30 hover:border-white/60 transition-colors" title="Custom color">
+                    <span
+                      className="absolute inset-0"
+                      style={{
+                        background: /^#[0-9a-f]{6}$/i.test(eqRingColor)
+                          && !ACCENT_PRESETS.some((p) => p.hex === eqRingColor)
+                          ? eqRingColor
+                          : 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)',
+                      }}
+                    />
+                    <input
+                      type="color"
+                      value={/^#[0-9a-f]{6}$/i.test(eqRingColor) ? eqRingColor : '#8b5cf6'}
+                      onChange={(e) => setEqRingColor(e.target.value)}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      aria-label="Custom equalizer color"
+                    />
+                  </label>
                 </div>
               </div>
               <div className="flex flex-col gap-2">
@@ -1820,7 +1927,7 @@ function App() {
       )}
 
       {/* Bottom Player Bar */}
-      <footer className="relative z-10 h-32 sm:h-36 border-t border-white/10 bg-black/40 backdrop-blur-xl flex items-center px-4 sm:px-8 gap-4 sm:gap-8 w-full shrink-0 overflow-visible">
+      <footer className="app-chrome relative z-10 h-32 sm:h-36 border-t border-white/10 backdrop-blur-xl flex items-center px-4 sm:px-8 gap-4 sm:gap-8 w-full shrink-0 overflow-visible">
         <div className="cat-hanging" aria-hidden />
 
         {/* Album art — click to open NowPlaying overlay */}
@@ -1859,7 +1966,7 @@ function App() {
           {showNowPlayingAddMenu && nowPlaying && (
             <>
             <div className="fixed inset-0 z-[29]" onClick={() => setShowNowPlayingAddMenu(false)} />
-            <div className="absolute z-[30] left-0 bottom-[calc(100%+1rem)] w-64 max-h-[min(50vh,320px)] overflow-y-auto rounded-2xl border border-white/15 bg-white/[0.04] backdrop-blur-2xl p-1.5 flex flex-col gap-0.5" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.07)' }}>
+            <div className="menu-panel absolute z-[30] left-0 bottom-[calc(100%+1rem)] w-64 max-h-[min(50vh,320px)] overflow-y-auto rounded-2xl border border-white/15 backdrop-blur-2xl p-1.5 flex flex-col gap-0.5">
               <div className="px-3 pt-1.5 pb-1">
                 <p className="text-[9px] uppercase tracking-widest text-gray-600">Add to</p>
               </div>
@@ -1869,8 +1976,9 @@ function App() {
                 className="w-full rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-left transition-colors"
               >
                 <div className="flex items-center gap-3 text-sm whitespace-nowrap">
-                  <Heart className="w-4 h-4 shrink-0 text-gray-400" fill={lovedSongIds.includes(nowPlaying.id) ? 'currentColor' : 'none'} />
-                  <span className="text-white">{lovedSongIds.includes(nowPlaying.id) ? 'Unlove song' : 'Love song'}</span>
+                  <Heart className={`w-4 h-4 shrink-0 ${lovedSongIds.includes(nowPlaying.id) ? 'text-pink-400' : 'text-gray-400'}`} fill={lovedSongIds.includes(nowPlaying.id) ? 'currentColor' : 'none'} />
+                  <span className="text-white">Loved Songs</span>
+                  {lovedSongIds.includes(nowPlaying.id) && <span className="ml-auto text-[10px] text-gray-500">Added</span>}
                 </div>
               </button>
               {playlists.length > 0 && <div className="h-px bg-white/[0.07] mx-2 my-0.5" />}
@@ -2020,12 +2128,12 @@ function App() {
           type="button"
           onClick={() => setShowAccountDrawer(true)}
           className="relative shrink-0 ml-auto flex items-center justify-center"
-          style={{ width: 130, height: 130 }}
+          style={{ width: 112, height: 112 }}
           title="Profile"
         >
           <canvas
             ref={circularEqCanvasRef}
-            className="absolute inset-0"
+            className="absolute inset-0 w-full h-full"
           />
           <div
             className="relative z-10 w-20 h-20 rounded-full overflow-hidden border-2 flex items-center justify-center"
@@ -2048,8 +2156,8 @@ function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.97 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="fixed right-4 sm:right-6 bottom-[8.5rem] sm:bottom-[9.5rem] z-40 w-80 xl:w-96 flex flex-col rounded-2xl overflow-hidden"
-            style={{ background: 'rgba(10,10,13,0.88)', boxShadow: '0 16px 48px rgba(0,0,0,0.65), inset 0 0 0 1px rgba(255,255,255,0.08)', maxHeight: '420px' }}
+            className="menu-panel fixed right-4 sm:right-6 bottom-[8.5rem] sm:bottom-[9.5rem] z-40 w-80 xl:w-96 flex flex-col rounded-2xl overflow-hidden"
+            style={{ maxHeight: '420px' }}
           >
             <div className="px-4 pt-3 pb-2 shrink-0 border-b border-white/[0.06] flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-400/80 shrink-0 animate-pulse" />
@@ -2107,7 +2215,7 @@ function App() {
             <p className="text-sm text-gray-200 leading-relaxed">
               ListenWell was built out of a simple frustration — why pay a monthly fee just to listen to music you already have? I&apos;m a student who believes your music should be yours, fully and without conditions. No algorithms deciding what you hear next. No subscriptions. No data harvesting. Just your library, the way you want it.
             </p>
-            <p className="text-sm text-gray-400 mt-3">— Ben Krause</p>
+            <p className="text-sm text-gray-400 mt-3">— Soonavi</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2172,18 +2280,21 @@ function App() {
 
               {/* Profile card */}
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 flex items-center gap-4">
-                <label className="relative cursor-pointer group shrink-0">
-                  <div className="w-28 h-28 rounded-full overflow-hidden border-2 border-white/20 group-hover:border-violet-400/60 transition-colors flex items-center justify-center bg-white/[0.06]">
-                    {profilePicUrl
-                      ? <img src={profilePicUrl} alt="Profile" className="w-full h-full object-cover" />
-                      : <UserCircle2 className="w-12 h-12 text-gray-600" />
-                    }
-                  </div>
-                  <span className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <ImagePlus className="w-5 h-5 text-white" />
-                  </span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleProfilePicUpload} />
-                </label>
+                <div className="relative shrink-0 flex items-center justify-center" style={{ width: 140, height: 140 }}>
+                  <canvas ref={drawerEqCanvasRef} className="absolute inset-0 w-full h-full" />
+                  <label className="relative z-10 cursor-pointer group">
+                    <div className="w-28 h-28 rounded-full overflow-hidden border-2 border-white/20 group-hover:border-violet-400/60 transition-colors flex items-center justify-center bg-white/[0.06]">
+                      {profilePicUrl
+                        ? <img src={profilePicUrl} alt="Profile" className="w-full h-full object-cover" />
+                        : <UserCircle2 className="w-12 h-12 text-gray-600" />
+                      }
+                    </div>
+                    <span className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <ImagePlus className="w-5 h-5 text-white" />
+                    </span>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleProfilePicUpload} />
+                  </label>
+                </div>
                 <div className="flex-1 min-w-0">
                   <input
                     type="text"

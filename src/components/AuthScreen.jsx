@@ -16,6 +16,11 @@ function onParallaxLeave(e) {
   e.currentTarget.style.setProperty('--ry', '0deg')
 }
 
+const MODES = [
+  { key: 'login', label: 'Log in' },
+  { key: 'signup', label: 'Sign up' },
+]
+
 export default function AuthScreen({ onAuth }) {
   const [mode, setMode] = useState('login')
   const [email, setEmail] = useState('')
@@ -25,7 +30,9 @@ export default function AuthScreen({ onAuth }) {
   const [message, setMessage] = useState(null)
   const [showWhy, setShowWhy] = useState(false)
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (loading || !email || !password) return
     setError(null)
     setMessage(null)
     setLoading(true)
@@ -43,98 +50,137 @@ export default function AuthScreen({ onAuth }) {
 
   return (
     <div
-      className="min-h-screen w-full bg-[#0c0c0e] flex flex-col items-center justify-center px-6 gap-8"
-      style={{ color: '#9ca3af' }}
+      className="relative min-h-screen w-full bg-[#0c0c0e] flex flex-col items-center justify-center px-6 gap-8 overflow-hidden"
+      style={{ '--accent-rgb': '139 92 246' }}
     >
+      <div className="aurora aurora-one" aria-hidden />
+      <div className="aurora aurora-two" aria-hidden />
+
       {/* Branding */}
-      <div className="flex flex-col items-center gap-3 text-center">
-        <div className="w-20 h-20 rounded-3xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center">
-          <Music2 className="w-10 h-10 text-violet-400" />
+      <div className="relative flex flex-col items-center gap-3 text-center">
+        <div className="w-20 h-20 rounded-2xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center">
+          <Music2 className="w-10 h-10 text-violet-400" aria-hidden />
         </div>
-        <h1 className="text-4xl font-semibold text-white">ListenWell</h1>
-        <p className="text-base" style={{ color: '#9ca3af' }}>Your music, your way.</p>
+        <h1 className="section-title text-2xl sm:text-3xl font-bold text-gray-100">ListenWell</h1>
+        <p className="text-base text-gray-400">Your music, your way.</p>
       </div>
 
-      {/* Glassy card */}
-      <div className="parallax-card w-full max-w-md rounded-3xl border border-white/10 bg-white/5 backdrop-blur-2xl shadow-2xl shadow-black/40 p-8 flex flex-col gap-6" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
-
+      {/* Auth card */}
+      <div
+        className="parallax-card glass-card w-full max-w-md rounded-2xl p-8 flex flex-col gap-6"
+        onMouseMove={onParallaxMove}
+        onMouseLeave={onParallaxLeave}
+      >
         {/* Mode toggle */}
-        <div className="grid grid-cols-2 rounded-xl border border-white/10 overflow-hidden">
-          {[
-            { key: 'login', label: 'Log in' },
-            { key: 'signup', label: 'Sign up' },
-          ].map(({ key, label }) => (
+        <div className="grid grid-cols-2 rounded-[10px] border border-white/10 bg-white/[0.03] p-1 gap-1" role="tablist" aria-label="Log in or sign up">
+          {MODES.map(({ key, label }) => (
             <button
               key={key}
               type="button"
+              role="tab"
+              aria-selected={mode === key}
               onClick={() => { setMode(key); setError(null); setMessage(null) }}
-              style={{ display: 'block', width: '100%', padding: '12px 0', textAlign: 'center', color: '#9ca3af' }}
-              className={`text-base font-medium transition ${mode === key ? 'bg-violet-500/20' : 'hover:bg-white/[0.04]'}`}
+              className={`relative block w-full py-2.5 text-center rounded-md text-base font-medium transition-colors ${
+                mode === key ? 'text-violet-100' : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]'
+              }`}
             >
-              {label}
+              {mode === key && (
+                <motion.span
+                  layoutId="auth-mode-indicator"
+                  transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                  className="absolute inset-0 rounded-md bg-violet-500/15 border border-violet-500/40"
+                  aria-hidden
+                />
+              )}
+              <span className="relative">{label}</span>
             </button>
           ))}
         </div>
 
-        {/* Inputs */}
-        <div className="flex flex-col gap-4">
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-            className="w-full rounded-xl border border-white/10 bg-white/5 px-5 py-4 text-base placeholder-gray-500 focus:outline-none focus:border-violet-500/50 transition"
-            style={{ color: '#e5e7eb' }}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-            className="w-full rounded-xl border border-white/10 bg-white/5 px-5 py-4 text-base placeholder-gray-500 focus:outline-none focus:border-violet-500/50 transition"
-            style={{ color: '#e5e7eb' }}
-          />
-        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+          {/* Inputs */}
+          <div className="flex flex-col gap-4">
+            <input
+              type="email"
+              name="email"
+              autoComplete="email"
+              aria-label="Email"
+              placeholder="Email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="ui-input w-full rounded-[10px] px-4 py-3.5 text-base transition-colors focus:outline-none"
+            />
+            <input
+              type="password"
+              name="password"
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              aria-label="Password"
+              placeholder="Password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="ui-input w-full rounded-[10px] px-4 py-3.5 text-base transition-colors focus:outline-none"
+            />
+          </div>
 
-        {/* Feedback */}
-        {error && (
-          <p className="text-sm bg-red-500/15 border border-red-500/20 rounded-xl px-4 py-3" style={{ color: '#9ca3af' }}>
-            {error}
-          </p>
-        )}
-        {message && (
-          <p className="text-sm bg-violet-500/15 border border-violet-500/20 rounded-xl px-4 py-3" style={{ color: '#9ca3af' }}>
-            {message}
-          </p>
-        )}
+          {/* Feedback */}
+          <div aria-live="polite">
+            <AnimatePresence initial={false} mode="wait">
+              {error && (
+                <motion.p
+                  key={`error-${error}`}
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden text-sm text-red-200 bg-red-500/10 border border-red-500/25 rounded-[10px] px-4 py-3"
+                >
+                  {error}
+                </motion.p>
+              )}
+              {message && (
+                <motion.p
+                  key="message"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden text-sm text-violet-100 bg-violet-500/10 border border-violet-500/30 rounded-[10px] px-4 py-3"
+                >
+                  {message}
+                </motion.p>
+              )}
+            </AnimatePresence>
+          </div>
 
-        {/* Submit */}
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={loading || !email || !password}
-          style={{ display: 'block', width: '100%', textAlign: 'center', color: '#9ca3af', marginTop: '4px', marginBottom: '4px' }}
-          className="py-4 rounded-xl bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-base font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {loading ? 'Loading…' : 'Continue'}
-        </button>
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={loading || !email || !password}
+            className="ui-btn-primary block w-full text-center py-3.5 text-base font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {loading
+              ? (mode === 'login' ? 'Logging in…' : 'Creating account…')
+              : (mode === 'login' ? 'Log in' : 'Create account')}
+          </button>
+        </form>
       </div>
 
       {/* Why dropdown — outside and below the card */}
-      <div className="parallax-card w-full max-w-md rounded-2xl border border-white/10 overflow-hidden" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
+      <div className="relative w-full max-w-md rounded-[10px] border border-white/10 bg-white/[0.02] overflow-hidden">
         <button
           type="button"
           onClick={() => setShowWhy((v) => !v)}
-          style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px 16px', color: '#9ca3af', textAlign: 'center' }}
-          className="text-sm transition hover:bg-white/[0.04]"
+          aria-expanded={showWhy}
+          className="flex w-full items-center justify-center gap-2 px-4 py-3 text-sm text-gray-400 hover:text-gray-200 hover:bg-white/[0.04] transition-colors"
         >
           Why do I need to create an account?
           <motion.span
             animate={{ rotate: showWhy ? 180 : 0 }}
-            transition={{ duration: 0.2 }}
-            style={{ display: 'flex', flexShrink: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="flex shrink-0"
+            aria-hidden
           >
             <ChevronDown className="w-4 h-4" />
           </motion.span>
@@ -147,14 +193,11 @@ export default function AuthScreen({ onAuth }) {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25, ease: 'easeInOut' }}
-              style={{ overflow: 'hidden' }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
             >
-              <p
-                className="text-sm leading-relaxed px-4 pb-4 pt-1 text-center"
-                style={{ color: '#9ca3af', borderTop: '1px solid rgba(255,255,255,0.08)' }}
-              >
-                So that you can access your song files from any device or browser - your email will not be sold to anyone.
+              <p className="text-sm leading-relaxed px-4 pb-4 pt-3 text-center text-gray-400 border-t border-white/[0.08]">
+                So you can access your song files from any device or browser. Your email is never shared or sold.
               </p>
             </motion.div>
           )}

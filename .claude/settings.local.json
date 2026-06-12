@@ -20,7 +20,27 @@
       "WebSearch",
       "Bash(curl -s https://vsnkrwunsbjkohfsxmpx.supabase.co/)",
       "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/?grant_type=password -d '{}')",
-      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/token?grant_type=password -H 'Content-Type: application/json' -d '{}')"
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/token?grant_type=password -H 'Content-Type: application/json' -d '{}')",
+      "Bash(node *)",
+      "Bash(npx eslint *)",
+      "Read(//c/Program Files/Google/Chrome/Application/**)",
+      "Read(//c/Program Files \\(x86\\)/Google/Chrome/Application/**)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft/Edge/Application/**)",
+      "Bash(mkdir -p /tmp/lw)",
+      "Bash(\"/c/Program Files \\(x86\\)/Google/Chrome/Application/chrome.exe\" --headless=new --disable-gpu --window-size=1440,900 --screenshot=C:\\\\\\\\tmp\\\\\\\\lw-login.png http://localhost:5173)",
+      "Read(//c/tmp/**)",
+      "Read(//tmp/**)",
+      "Bash(\"/c/Program Files \\(x86\\)/Google/Chrome/Application/chrome.exe\" --headless=new --disable-gpu --window-size=1440,900 --virtual-time-budget=5000 --screenshot=\"C:\\\\\\\\Users\\\\\\\\Bennett K\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\lw-login.png\" http://localhost:5173)",
+      "Bash(\"/c/Program Files \\(x86\\)/Google/Chrome/Application/chrome.exe\" --headless=new --disable-gpu --window-size=1440,900 --virtual-time-budget=5000 --screenshot=\"C:\\\\\\\\Users\\\\\\\\Bennett K\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\lw-login2.png\" http://localhost:5173)",
+      "Bash(npm i *)",
+      "Bash(NODE_PATH=\"C:/Projects/listenwell/node_modules\" node lw-shots.mjs)",
+      "Bash(netstat -ano)",
+      "Bash(awk '{print $NF}')",
+      "Bash(xargs -r taskkill //F //PID)",
+      "Bash(taskkill //F //IM node.exe //FI \"WINDOWTITLE ne npm*\")",
+      "Bash(powershell -Command 'Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.Path -notlike '\\\\''*vite*'\\\\'' } | Select-Object Id, ProcessName | Format-Table')",
+      "Bash(rm /c/Projects/listenwell/public/test-tone.wav)",
+      "Bash(npm prune *)"
     ]
   }
 }
