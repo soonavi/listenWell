@@ -6,6 +6,7 @@ import UploadScreen from './components/UploadScreen'
 import SongsScreen from './components/SongsScreen' 
 import PlaylistsScreen from './components/PlaylistsScreen'
 import PlaylistDetailScreen from './components/PlaylistDetailScreen'
+import HomeScreen from './components/HomeScreen'
 import NowPlayingOverlay from './components/NowPlayingOverlay'
 import UpNextPanel from './components/UpNextPanel'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
@@ -34,6 +35,7 @@ import {
   Keyboard,
   Library,
   Upload,
+  Home,
   SlidersVertical,
   Speaker,
   LayoutGrid,
@@ -253,7 +255,7 @@ function App() {
   const visualizerDataRef = useRef(null)
   const visualizerFrameRef = useRef(null)
   const visualizerCanvasRef = useRef(null)
-  const [recentItems, setRecentItems] = useState([])
+  const [recentItems, setRecentItems] = useState(() => parseStoredJSON('listenwell-recent', []))
   const [theme, setTheme] = useState(() => normalizeThemeId(safeGetStorage('listenwell-theme', 'dark')))
   const [eqRingColor, setEqRingColor] = useState(() => safeGetStorage('listenwell-eq-ring-color', 'accent'))
   const [customEqGains, setCustomEqGains] = useState(() => {
@@ -892,6 +894,7 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-loved', JSON.stringify(lovedSongIds)) }, [lovedSongIds])
   useEffect(() => { safeSetStorage('listenwell-playlists', JSON.stringify(playlists)) }, [playlists])
   useEffect(() => { safeSetStorage('listenwell-playcounts', JSON.stringify(playCounts)) }, [playCounts])
+  useEffect(() => { safeSetStorage('listenwell-recent', JSON.stringify(recentItems)) }, [recentItems])
   useEffect(() => { safeSetStorage('listenwell-vnorm', String(volumeNormalization)) }, [volumeNormalization])
   useEffect(() => { safeSetStorage('listenwell-crossfade', String(crossfadeDuration)) }, [crossfadeDuration])
   useEffect(() => { safeSetStorage('listenwell-art-color', String(artColorExtract)) }, [artColorExtract])
@@ -1376,6 +1379,21 @@ function App() {
           ))}
         </nav>
 
+        {/* Home — top right, before logo */}
+        <button
+          type="button"
+          onClick={() => setActivePage('home')}
+          aria-label="Home"
+          className={`magnetic-hover shrink-0 mr-3 flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-full border transition ${
+            activePage === 'home'
+              ? 'bg-violet-500/15 border-violet-500/60 text-violet-100'
+              : 'border-white/15 bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/40 text-gray-300'
+          }`}
+        >
+          <Home className="w-4 h-4" />
+          <span className="hidden sm:inline text-xs sm:text-sm font-medium">Home</span>
+        </button>
+
         {/* Logo — right side of header */}
         <div ref={logoMenuRef} className="shrink-0 relative mr-3">
           <button
@@ -1437,6 +1455,40 @@ function App() {
       {/* Main Content Area */}
       <main className="relative z-10 flex-1 overflow-y-hidden px-6 sm:px-8 py-6">
         <AnimatePresence>
+          {activePage === 'home' && (
+            <motion.div
+              key="home"
+              className="absolute inset-0 flex px-6 sm:px-8 py-6"
+              variants={pageTransition}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            >
+              <HomeScreen
+                displayName={displayName}
+                songs={songs}
+                playlists={playlists}
+                lovedSongIds={lovedSongIds}
+                recentItems={recentItems}
+                currentTrackIndex={currentTrackIndex}
+                isPlaying={isPlaying}
+                onPlaySong={(songId) => {
+                  const index = songs.findIndex((s) => s.id === songId)
+                  if (index !== -1) handlePlaySongClick(index)
+                }}
+                onOpenPlaylist={(id) => {
+                  setSelectedPlaylistId(id)
+                  setActivePage('playlist-detail')
+                  markRecent('playlist', id)
+                }}
+                onToggleLoved={toggleLovedSong}
+                onGoToSongs={() => setActivePage('songs')}
+                onGoToPlaylists={() => setActivePage('playlists')}
+              />
+            </motion.div>
+          )}
+
           {activePage === 'upload' && (
             <motion.div
               key="upload"
