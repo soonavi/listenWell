@@ -128,6 +128,11 @@ function normalizeThemeId(themeId) {
     terminal: 'terminal',
     paper: 'paper',
     blueprint: 'blueprint',
+    chrome: 'chrome',
+    bubblegum: 'bubblegum',
+    ocean: 'ocean',
+    ember: 'ember',
+    moss: 'moss',
   }
   return map[themeId] || 'dark'
 }
@@ -1477,7 +1482,7 @@ function App() {
           type="button"
           onClick={() => setActivePage('home')}
           aria-label="Home"
-          className={`magnetic-hover shrink-0 mr-3 flex items-center gap-2 px-3 sm:px-4 py-2.5 rounded-full border transition ${
+          className={`magnetic-hover shrink-0 mr-2 sm:mr-3 flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full border transition ${
             activePage === 'home'
               ? 'bg-violet-500/15 border-violet-500/60 text-violet-100'
               : 'border-white/15 bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/40 text-gray-300'
@@ -1492,10 +1497,10 @@ function App() {
           <button
             type="button"
             onClick={() => setShowLogoMenu((prev) => !prev)}
-            className="flex items-center gap-3 px-5 py-2.5 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
+            className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
             aria-label="Menu"
           >
-            <img src="/logo.svg" alt="listenWell" className="w-11 h-11 brightness-0 invert opacity-80" />
+            <img src="/logo.svg" alt="listenWell" className="w-8 h-8 sm:w-11 sm:h-11" />
             <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
           </button>
           <AnimatePresence>
@@ -1546,12 +1551,12 @@ function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1 overflow-y-hidden px-6 sm:px-8 py-6">
+      <main className="relative z-10 flex-1 overflow-y-hidden px-4 sm:px-8 py-4 sm:py-6">
         <AnimatePresence>
           {activePage === 'home' && (
             <motion.div
               key="home"
-              className="absolute inset-0 flex px-6 sm:px-8 py-6"
+              className="absolute inset-0 flex px-4 sm:px-8 py-4 sm:py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
@@ -1585,7 +1590,7 @@ function App() {
           {activePage === 'upload' && (
             <motion.div
               key="upload"
-              className="absolute inset-0 flex px-6 sm:px-8 py-6"
+              className="absolute inset-0 flex px-4 sm:px-8 py-4 sm:py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
@@ -1599,7 +1604,7 @@ function App() {
           {activePage === 'library' && (
             <motion.div
               key="library"
-              className="absolute inset-0 mx-6 sm:mx-8 my-6"
+              className="absolute inset-0 mx-4 sm:mx-8 my-4 sm:my-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
@@ -1694,7 +1699,7 @@ function App() {
               exit="exit"
               transition={{ duration: 0.25, ease: 'easeOut' }}
             >
-              <div className="relative flex h-full px-6 sm:px-8 py-6">
+              <div className="relative flex h-full px-4 sm:px-8 py-4 sm:py-6">
               <SongsScreen
                 songsBgUrl={songsBgUrl}
                 songsBgBlur={songsBgBlur}
@@ -1754,7 +1759,7 @@ function App() {
           {activePage === 'playlists' && (
             <motion.div
               key="playlists"
-              className="absolute inset-0 flex px-6 sm:px-8 py-6"
+              className="absolute inset-0 flex px-4 sm:px-8 py-4 sm:py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
@@ -1811,7 +1816,7 @@ function App() {
           {activePage === 'playlist-detail' && (
             <motion.div
               key="playlist-detail"
-              className="absolute inset-0 flex px-6 sm:px-8 py-6"
+              className="absolute inset-0 flex px-4 sm:px-8 py-4 sm:py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
@@ -2008,7 +2013,7 @@ function App() {
               <div className="flex flex-col gap-1.5">
                 <span className="font-medium">Scene theme</span>
                 <div className="grid grid-cols-3 gap-2">
-                  {[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'sunset', label: 'Sunset' }, { id: 'pink', label: 'Pink' }, { id: 'cartoon', label: 'Cartoon' }, { id: 'terminal', label: 'Terminal' }, { id: 'paper', label: 'Paper' }, { id: 'blueprint', label: 'Blueprint' }].map((scene) => (
+                  {[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'sunset', label: 'Sunset' }, { id: 'pink', label: 'Pink' }, { id: 'cartoon', label: 'Cartoon' }, { id: 'terminal', label: 'Terminal' }, { id: 'paper', label: 'Paper' }, { id: 'blueprint', label: 'Blueprint' }, { id: 'chrome', label: 'Chrome' }, { id: 'bubblegum', label: 'Bubblegum' }, { id: 'ocean', label: 'Ocean' }, { id: 'ember', label: 'Ember' }, { id: 'moss', label: 'Moss' }].map((scene) => (
                     <button
                       key={scene.id}
                       type="button"
@@ -2156,7 +2161,7 @@ function App() {
       )}
 
       {/* Bottom Player Bar */}
-      <footer className="app-chrome relative z-10 h-32 sm:h-36 border-t border-white/10 backdrop-blur-xl flex items-center px-4 sm:px-8 gap-4 sm:gap-8 w-full shrink-0 overflow-visible">
+      <footer className="app-chrome relative z-10 h-20 sm:h-36 border-t border-white/10 backdrop-blur-xl flex items-center px-3 sm:px-8 gap-2.5 sm:gap-8 w-full shrink-0 overflow-visible">
         <div className="cat-hanging" aria-hidden />
 
         {/* Album art — click to open NowPlaying overlay */}
@@ -2174,7 +2179,7 @@ function App() {
           }
         </div>
 
-        <div ref={nowPlayingMenuRef} className="w-40 sm:w-52 min-w-0 relative">
+        <div ref={nowPlayingMenuRef} className="flex-1 sm:flex-none sm:w-52 min-w-0 relative">
           <div className="flex items-center gap-2">
             <p className="text-sm sm:text-base font-semibold truncate text-white/95 flex-1">
               {nowPlaying ? nowPlaying.title || nowPlaying.fileName : 'No song selected'}
@@ -2183,7 +2188,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => setShowNowPlayingAddMenu((prev) => !prev)}
-                className="w-8 h-8 rounded-full border border-white/25 inline-flex items-center justify-center text-gray-300 hover:border-violet-400/60 hover:bg-violet-500/10 hover:text-violet-300 transition-colors shrink-0"
+                className="w-8 h-8 rounded-full border border-white/25 hidden sm:inline-flex items-center justify-center text-gray-300 hover:border-violet-400/60 hover:bg-violet-500/10 hover:text-violet-300 transition-colors shrink-0"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -2244,14 +2249,14 @@ function App() {
         </div>
 
         {/* Playback controls */}
-        <div className="flex-1 flex flex-col items-center gap-2 min-w-0 max-w-2xl">
-          <div className="flex gap-4 sm:gap-5 items-center">
+        <div className="shrink-0 sm:shrink sm:flex-1 flex flex-col items-center gap-2 min-w-0 max-w-2xl">
+          <div className="flex gap-2.5 sm:gap-5 items-center">
             <button
               type="button"
               onClick={() => setShuffle((prev) => !prev)}
               disabled={songs.length === 0}
               title={shuffle ? 'Shuffle on' : 'Shuffle off'}
-              className={`magnetic-hover p-1.5 sm:p-2 transition disabled:opacity-30 disabled:cursor-not-allowed ${shuffle ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
+              className={`magnetic-hover hidden sm:block p-1.5 sm:p-2 transition disabled:opacity-30 disabled:cursor-not-allowed ${shuffle ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
             >
               <Shuffle className="w-5 h-5" />
             </button>
@@ -2260,7 +2265,7 @@ function App() {
               onClick={handlePrev}
               disabled={songs.length === 0}
               aria-label="Previous track"
-              className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="magnetic-hover hidden sm:block p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipBack className="w-6 h-6" />
             </button>
@@ -2269,7 +2274,7 @@ function App() {
               onClick={handlePlayPause}
               disabled={songs.length === 0}
               aria-label={isPlaying ? 'Pause' : 'Play'}
-              className="magnetic-hover ring-pulse w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className="magnetic-hover ring-pulse w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               {isPlaying ? <Pause className="w-5 h-5" strokeWidth={1.75} /> : <Play className="w-5 h-5 ml-0.5" strokeWidth={1.75} />}
             </button>
@@ -2287,13 +2292,13 @@ function App() {
               onClick={handleToggleRepeat}
               disabled={songs.length === 0}
               title={repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'}
-              className={`magnetic-hover p-1.5 sm:p-2 transition disabled:opacity-30 disabled:cursor-not-allowed ${repeat !== 'off' ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
+              className={`magnetic-hover hidden sm:block p-1.5 sm:p-2 transition disabled:opacity-30 disabled:cursor-not-allowed ${repeat !== 'off' ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
             >
               {repeat === 'one' ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
             </button>
           </div>
-          <div className="w-full flex items-center gap-3 text-xs sm:text-sm text-gray-500">
-            <span className="w-10 shrink-0 tabular-nums text-right">{formatTime(currentTime)}</span>
+          <div className="flex items-center gap-3 text-xs sm:text-sm text-gray-500 absolute left-3 right-3 -top-[5px] sm:static sm:w-full">
+            <span className="hidden sm:block w-10 shrink-0 tabular-nums text-right">{formatTime(currentTime)}</span>
             <input
               type="range"
               min={0}
@@ -2305,17 +2310,17 @@ function App() {
               aria-label="Seek"
               className="flex-1 h-2 rounded-full appearance-none bg-white/25 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
             />
-            <span className="w-10 shrink-0 tabular-nums">{formatTime(duration)}</span>
+            <span className="hidden sm:block w-10 shrink-0 tabular-nums">{formatTime(duration)}</span>
           </div>
           <canvas
             ref={visualizerCanvasRef}
-            className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10"
+            className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10 hidden sm:block"
             aria-label="Live audio visualizer"
           />
         </div>
 
         {/* Volume + utility buttons */}
-        <div className="flex items-center gap-2 sm:gap-3 text-gray-500 shrink-0">
+        <div className="hidden sm:flex items-center gap-3 text-gray-500 shrink-0">
           <Volume2 className="w-5 h-5" />
           <input
             type="range"
@@ -2343,15 +2348,15 @@ function App() {
           type="button"
           onClick={() => (showSettings ? closeSettingsPanel() : openSettingsPanel())}
           aria-label="Settings"
-          className="magnetic-hover ml-1 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
+          className="magnetic-hover ml-1 flex items-center justify-center w-11 h-11 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
         >
-          <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
+          <Settings2 className="w-5 h-5 sm:w-8 sm:h-8" />
         </button>
 
         <button
           type="button"
           onClick={() => setShowUpNext((prev) => !prev)}
-          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-14 h-14 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
+          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-11 h-11 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
           title="Up Next"
         >
           <ListMusic className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -2362,7 +2367,7 @@ function App() {
         <button
           type="button"
           onClick={() => setShowAccountDrawer(true)}
-          className="relative shrink-0 ml-auto flex items-center justify-center"
+          className="relative shrink-0 ml-auto hidden sm:flex items-center justify-center"
           style={{ width: 112, height: 112 }}
           title="Profile"
         >

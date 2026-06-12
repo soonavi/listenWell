@@ -454,14 +454,6 @@ textarea:focus-visible {
   color: #1c1917;
 }
 
-/* The logo ships as a black SVG flipped white via brightness-0 invert;
-   on light surfaces it goes back to ink. */
-[data-theme='light'] img.invert,
-[data-theme='cartoon'] img.invert,
-[data-theme='paper'] img.invert {
-  filter: brightness(0);
-}
-
 .glass-card {
   background: linear-gradient(145deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.02));
   backdrop-filter: blur(18px);
@@ -1087,5 +1079,222 @@ select.song-toolbar-select:focus-visible {
   .parallax-card,
   .magnetic-hover:hover {
     transform: none !important;
+  }
+}
+
+/* ===== Additional scene themes ===== */
+
+/* Chrome: polished metal. Silver horizon gradient, steel ink, cobalt accents. */
+[data-theme='chrome'] {
+  color-scheme: light;
+  background-color: #dfe4ea;
+  background-image: linear-gradient(180deg, #f4f7fa 0%, #cdd6e0 38%, #9fabb9 50%, #d5dde5 64%, #eef2f6 100%);
+  background-attachment: fixed;
+  --color-white: #161c24;
+  --color-gray-100: #1b222b;
+  --color-gray-200: #28313c;
+  --color-gray-300: #3d4956;
+  --color-gray-400: #54616f;
+  --color-gray-500: #69788a;
+  --color-gray-600: #93a1ae;
+  --color-gray-700: #c3ccd5;
+  --color-gray-800: #dbe1e8;
+  --color-gray-900: #eaeef2;
+  --color-violet-100: #0f2c4d;
+  --color-violet-200: #143a66;
+  --color-violet-300: #1d4ed8;
+  --color-violet-400: #2563eb;
+  --color-violet-500: #3b82f6;
+  --color-violet-600: #1e40af;
+  --color-cyan-200: #0c4a6e;
+  --color-cyan-300: #075985;
+  --color-cyan-400: #0369a1;
+  --color-red-200: #991b1b;
+}
+
+[data-theme='chrome'] .glass-card {
+  background: linear-gradient(160deg, rgb(255 255 255 / 0.85), rgb(214 222 231 / 0.55));
+  box-shadow:
+    0 10px 28px rgb(40 49 60 / 0.18),
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    inset 0 0 0 1px rgb(122 138 153 / 0.35);
+}
+
+[data-theme='chrome'] .app-chrome {
+  background-color: rgb(244 247 250 / 0.65);
+}
+
+[data-theme='chrome'] .menu-panel {
+  background: rgba(246, 249, 252, 0.96);
+  box-shadow: 0 8px 32px rgb(40 49 60 / 0.25), inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 0 0 1px rgb(122 138 153 / 0.4);
+}
+
+[data-theme='chrome'] .aurora {
+  filter: blur(calc(40px + (22px * var(--blur-amount, 0.7))));
+  opacity: calc(0.1 + (0.1 * var(--aurora-intensity, 0.75)));
+}
+
+[data-theme='chrome'] .bg-\[\#0f1117\]\/95,
+[data-theme='chrome'] .bg-\[\#0f1117\]\/92,
+[data-theme='chrome'] .bg-\[\#0f1117\]\/90,
+[data-theme='chrome'] .bg-\[\#0e1016\]\/96,
+[data-theme='chrome'] .bg-\[\#13111a\] {
+  background-color: rgb(243 246 250 / 0.96);
+}
+
+[data-theme='chrome'] .bg-\[\#08090c\]\/88 {
+  background-color: rgb(223 230 237 / 0.92);
+}
+
+[data-theme='chrome'] .bg-\[\#18151f\] {
+  background-color: #28313c;
+  color: #f4f7fa;
+}
+
+[data-theme='chrome'] .text-\[\#f3f4f6\] {
+  color: #161c24;
+}
+
+/* Bubblegum: candy shop. Pink-sky pastels, berry ink, hot pink accents. */
+[data-theme='bubblegum'] {
+  color-scheme: light;
+  background-color: #fde7f1;
+  background-image:
+    radial-gradient(circle at 15% 10%, rgb(125 211 252 / 0.45), transparent 38%),
+    radial-gradient(circle at 85% 85%, rgb(249 168 212 / 0.55), transparent 40%),
+    radial-gradient(circle at 70% 20%, rgb(253 224 71 / 0.18), transparent 30%);
+  --color-white: #46102f;
+  --color-gray-100: #4a1335;
+  --color-gray-200: #5d1a44;
+  --color-gray-300: #752a59;
+  --color-gray-400: #8f4173;
+  --color-gray-500: #a85f8d;
+  --color-gray-600: #c289ab;
+  --color-gray-700: #f3c4dc;
+  --color-gray-800: #f8d8e8;
+  --color-gray-900: #fbe6f0;
+  --color-violet-100: #831843;
+  --color-violet-200: #9d174d;
+  --color-violet-300: #be185d;
+  --color-violet-400: #db2777;
+  --color-violet-500: #ec4899;
+  --color-violet-600: #be185d;
+  --color-cyan-200: #075985;
+  --color-cyan-300: #0284c7;
+  --color-cyan-400: #0ea5e9;
+  --color-red-200: #991b1b;
+}
+
+[data-theme='bubblegum'] .glass-card {
+  background: linear-gradient(145deg, rgb(255 255 255 / 0.78), rgb(255 235 245 / 0.5));
+  box-shadow:
+    0 10px 28px rgb(190 24 93 / 0.14),
+    inset 0 0 0 1px rgb(236 72 153 / 0.22);
+}
+
+[data-theme='bubblegum'] .app-chrome {
+  background-color: rgb(255 240 248 / 0.7);
+}
+
+[data-theme='bubblegum'] .menu-panel {
+  background: rgba(255, 245, 250, 0.97);
+  box-shadow: 0 8px 32px rgb(190 24 93 / 0.2), inset 0 0 0 1px rgb(236 72 153 / 0.3);
+}
+
+[data-theme='bubblegum'] .aurora {
+  filter: blur(calc(44px + (26px * var(--blur-amount, 0.7)))) saturate(1.2);
+  opacity: calc(0.14 + (0.12 * var(--aurora-intensity, 0.75)));
+}
+
+[data-theme='bubblegum'] .bg-\[\#0f1117\]\/95,
+[data-theme='bubblegum'] .bg-\[\#0f1117\]\/92,
+[data-theme='bubblegum'] .bg-\[\#0f1117\]\/90,
+[data-theme='bubblegum'] .bg-\[\#0e1016\]\/96,
+[data-theme='bubblegum'] .bg-\[\#13111a\] {
+  background-color: rgb(255 243 249 / 0.97);
+}
+
+[data-theme='bubblegum'] .bg-\[\#08090c\]\/88 {
+  background-color: rgb(253 231 241 / 0.93);
+}
+
+[data-theme='bubblegum'] .bg-\[\#18151f\] {
+  background-color: #be185d;
+  color: #fff0f7;
+}
+
+[data-theme='bubblegum'] .text-\[\#f3f4f6\] {
+  color: #46102f;
+}
+
+/* Ocean: the abyss. Deep-sea base, aqua signal, seafoam harmonic. */
+[data-theme='ocean'] {
+  background-color: #06141d;
+  background-image:
+    radial-gradient(circle at 15% 10%, rgb(34 211 238 / 0.13), transparent 36%),
+    radial-gradient(circle at 85% 85%, rgb(20 184 166 / 0.11), transparent 34%);
+  --color-violet-100: #cffafe;
+  --color-violet-200: #a5f3fc;
+  --color-violet-300: #67e8f9;
+  --color-violet-400: #22d3ee;
+  --color-violet-500: #06b6d4;
+  --color-violet-600: #0891b2;
+  --color-cyan-200: #ccfbf1;
+  --color-cyan-300: #99f6e4;
+  --color-cyan-400: #5eead4;
+}
+
+/* Ember: banked coals. Warm near-black, amber signal, flame harmonic. */
+[data-theme='ember'] {
+  background-color: #140d09;
+  background-image:
+    radial-gradient(circle at 15% 10%, rgb(245 158 11 / 0.13), transparent 36%),
+    radial-gradient(circle at 85% 85%, rgb(220 38 38 / 0.1), transparent 34%);
+  --color-violet-100: #fef3c7;
+  --color-violet-200: #fde68a;
+  --color-violet-300: #fcd34d;
+  --color-violet-400: #fbbf24;
+  --color-violet-500: #f59e0b;
+  --color-violet-600: #d97706;
+  --color-cyan-200: #fecaca;
+  --color-cyan-300: #fca5a5;
+  --color-cyan-400: #f87171;
+}
+
+/* Moss: forest floor. Green-tinted dark, emerald signal, lime harmonic. */
+[data-theme='moss'] {
+  background-color: #0b120c;
+  background-image:
+    radial-gradient(circle at 15% 10%, rgb(16 185 129 / 0.12), transparent 36%),
+    radial-gradient(circle at 85% 85%, rgb(132 204 22 / 0.08), transparent 34%);
+  --color-violet-100: #d1fae5;
+  --color-violet-200: #a7f3d0;
+  --color-violet-300: #6ee7b7;
+  --color-violet-400: #34d399;
+  --color-violet-500: #10b981;
+  --color-violet-600: #059669;
+  --color-cyan-200: #ecfccb;
+  --color-cyan-300: #d9f99d;
+  --color-cyan-400: #bef264;
+}
+
+/* Touch devices have no hover: keep the tile play button visible as a
+   corner affordance instead of a hover-revealed overlay. */
+@media (hover: none) {
+  .tile-play-overlay {
+    opacity: 1;
+    background-color: transparent;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 6px;
+  }
+  .tile-play-overlay > button {
+    width: 38px;
+    height: 38px;
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.5);
+  }
+  .tile-play-overlay > button svg {
+    width: 18px;
+    height: 18px;
   }
 }

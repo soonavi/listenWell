@@ -108,11 +108,10 @@ function SongsScreen({
 
   // Tile height is art (colWidth - 20px padding) + text block (60px incl. padding);
   // row stride adds the grid gap
-  const TILE_TARGET = { small: 160, medium: 220, large: 300 }
-  const tileTarget = TILE_TARGET[tileSize] || TILE_TARGET.medium
-  const virtualColumns = Math.max(1, Math.round(viewportWidth / tileTarget))
+  const baseColumns = viewportWidth >= 1024 ? 5 : viewportWidth >= 768 ? 4 : viewportWidth >= 640 ? 3 : 2
+  const virtualColumns = tileSize === 'small' ? baseColumns + 1 : tileSize === 'large' ? Math.max(1, baseColumns - 1) : baseColumns
   const virtualGap = viewportWidth >= 640 ? 20 : 16
-  const colWidth = viewportWidth > 0 ? (viewportWidth - virtualGap * (virtualColumns - 1)) / virtualColumns : tileTarget
+  const colWidth = viewportWidth > 0 ? (viewportWidth - virtualGap * (virtualColumns - 1)) / virtualColumns : 220
   const rowHeight = Math.round(colWidth + 60 + virtualGap)
   const virtualItems = useMemo(() => [...visibleSongs, { id: '__upload__', uploadTile: true }], [visibleSongs])
   const rowCount = Math.ceil(virtualItems.length / virtualColumns)
@@ -229,7 +228,7 @@ function SongsScreen({
 
         {visibleSongs.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-sm text-gray-500 gap-3">
-            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center"><img src="/logo.svg" alt="Listenwell" className="w-7 h-7 brightness-0 invert opacity-40" /></span>
+            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center"><img src="/logo.svg" alt="Listenwell" className="w-7 h-7 opacity-70" /></span>
             <p>{normalizedQuery ? 'No songs match your search.' : songFilter === 'loved' ? 'No loved songs yet.' : 'No songs yet.'}</p>
             <button type="button" onClick={onGoToUpload} className="px-4 py-2 rounded-full bg-white text-black text-xs font-medium hover:bg-gray-100 transition">Upload music</button>
           </div>
@@ -293,7 +292,7 @@ function SongsScreen({
                     {currentTrackIndex === i && isPlaying && (
                       <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-green-400 shadow-lg shadow-green-400/50 animate-pulse" />
                     )}
-                    <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                    <div className="tile-play-overlay absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
                       <button type="button" onClick={(e) => { e.stopPropagation(); onPlaySongClick(i) }} className="w-12 h-12 rounded-full bg-white/90 text-black flex items-center justify-center shadow-lg hover:scale-105 transition">
                         {currentTrackIndex === i && isPlaying
                           ? <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
@@ -321,7 +320,7 @@ function SongsScreen({
         )}
       </section>
 
-      <section className="w-full max-w-sm sm:max-w-md bg-white/[0.05] rounded-2xl border border-white/[0.08] p-5 flex flex-col gap-4 shrink-0 shadow-lg ml-1 sm:ml-2 glass-card parallax-card" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
+      <section className="w-full max-w-sm sm:max-w-md bg-white/[0.05] rounded-2xl border border-white/[0.08] p-5 hidden lg:flex flex-col gap-4 shrink-0 shadow-lg ml-1 sm:ml-2 glass-card parallax-card" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
         <h2 className="text-sm font-semibold tracking-[0.18em] uppercase text-gray-300">Details</h2>
         {selectedSong ? (
           <>
