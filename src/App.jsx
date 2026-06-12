@@ -210,9 +210,14 @@ async function readAudioTags(file) {
   }
 }
 
+// Signed URLs must outlive a listening session — 7 days
+const SIGNED_URL_TTL = 60 * 60 * 24 * 7
+
 function App() {
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [uploadNotice, setUploadNotice] = useState(null)
+  const uploadNoticeTimerRef = useRef(null)
   const [songs, setSongs] = useState([])
   const [selectedSongIndex, setSelectedSongIndex] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(null)
@@ -327,34 +332,38 @@ function App() {
         .from('tracks')
         .select('*')
         .eq('user_id', user.id)
-  
-      if (error || !tracks?.length) return
-  
-      const songsWithUrls = await Promise.all(
-        tracks.map(async (track) => {
-          const { data: signedData } = await supabase.storage
-            .from('audio-files')
-            .createSignedUrl(track.storage_path, 3600)
-  
-          return {
-            id: track.id,
-            title: track.title,
-            fileName: track.storage_path.split('/').pop(),
-            artist: track.artist || '',
-            album: track.album || '',
-            url: signedData?.signedUrl || '',
-            coverUrl: null,
-            description: '',
-            lyrics: '',
-            gainDb: 0,
-            bpm: null,
-          }
-        })
-      )
-  
+
+      if (error) {
+        console.error('Failed to load library:', error.message)
+        return
+      }
+      if (!tracks?.length) return
+
+      const audioPaths = tracks.map((t) => t.storage_path)
+      const coverPaths = tracks.map((t) => `${t.storage_path.split('/').slice(0, -1).join('/')}/cover`)
+
+      const [{ data: audioUrls }, { data: coverUrls }] = await Promise.all([
+        supabase.storage.from('audio-files').createSignedUrls(audioPaths, SIGNED_URL_TTL),
+        supabase.storage.from('audio-files').createSignedUrls(coverPaths, SIGNED_URL_TTL),
+      ])
+
+      const songsWithUrls = tracks.map((track, i) => ({
+        id: track.id,
+        title: track.title,
+        fileName: track.storage_path.split('/').pop(),
+        artist: track.artist || '',
+        album: track.album || '',
+        url: audioUrls?.[i]?.signedUrl || '',
+        coverUrl: coverUrls?.[i]?.signedUrl || null,
+        description: '',
+        lyrics: '',
+        gainDb: 0,
+        bpm: null,
+      }))
+
       setSongs(songsWithUrls)
     }
-  
+
     loadSongs()
   }, [user])
 
@@ -560,65 +569,100 @@ function App() {
     setBlurAmount(preset.blurAmount)
   }
 
+  const showUploadNotice = useCallback((type, message) => {
+    setUploadNotice({ type, message })
+    window.clearTimeout(uploadNoticeTimerRef.current)
+    uploadNoticeTimerRef.current = window.setTimeout(() => setUploadNotice(null), 7000)
+  }, [])
+
   const processAudioFiles = useCallback(async (fileList) => {
-    const { data: { user: currentUser } } = await supabase.auth.getUser()
-    if (!currentUser) return
-  
+    const { data: { session } } = await supabase.auth.getSession()
+    const currentUser = session?.user
+    if (!currentUser) {
+      showUploadNotice('error', 'You must be signed in to upload songs.')
+      return
+    }
+
     const files = Array.from(fileList || [])
     const audioFiles = files.filter((f) => f.type.startsWith('audio/') || f.type === 'video/webm' || f.type === 'video/ogg' || f.name.match(/\.(webm|ogg|opus|m4a)$/i))
-    if (audioFiles.length === 0) return
-  
+    if (audioFiles.length === 0) {
+      if (files.length > 0) showUploadNotice('error', 'No supported audio files were selected.')
+      return
+    }
+
+    const failures = []
     const newSongs = await Promise.all(
       audioFiles.map(async (f) => {
         const id = crypto.randomUUID()
-        const tags = await readAudioTags(f)
-  
-        const sanitizedName = f.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
-        const storagePath = `${currentUser.id}/${id}/${sanitizedName}`
-  
-        const { error: uploadError } = await supabase.storage
-          .from('audio-files')
-          .upload(storagePath, f, { upsert: true })
-  
-        if (uploadError) console.error('Upload failed:', uploadError.message)
-  
-        const { data: signedData } = await supabase.storage
-          .from('audio-files')
-          .createSignedUrl(storagePath, 3600)
-  
-        const url = signedData?.signedUrl || URL.createObjectURL(f)
-  
+        let tags = null
+        let saveError = null
+        let url = null
         let coverUrl = null
-        if (tags?.picture) {
-          const { data, format } = tags.picture
+
+        try {
+          tags = await readAudioTags(f)
+
+          const sanitizedName = f.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+          const storagePath = `${currentUser.id}/${id}/${sanitizedName}`
+
+          const { error: uploadError } = await supabase.storage
+            .from('audio-files')
+            .upload(storagePath, f, { upsert: true })
+          if (uploadError) throw uploadError
+
+          if (tags?.picture) {
+            const { data, format } = tags.picture
+            const coverBlob = new Blob([data], { type: format || 'image/jpeg' })
+            // Cover lives at a fixed path next to the audio so loadSongs can find it
+            const { error: coverError } = await supabase.storage
+              .from('audio-files')
+              .upload(`${currentUser.id}/${id}/cover`, coverBlob, { upsert: true, contentType: format || 'image/jpeg' })
+            if (!coverError) {
+              const { data: coverSigned } = await supabase.storage
+                .from('audio-files')
+                .createSignedUrl(`${currentUser.id}/${id}/cover`, SIGNED_URL_TTL)
+              coverUrl = coverSigned?.signedUrl || null
+            }
+          }
+
+          const { error: dbError } = await supabase.from('tracks').insert({
+            id,
+            user_id: currentUser.id,
+            title: tags?.title || f.name.replace(/\.[^/.]+$/, ''),
+            artist: tags?.artist || '',
+            album: tags?.album || '',
+            storage_path: storagePath,
+          })
+          if (dbError) throw dbError
+
+          const { data: signedData } = await supabase.storage
+            .from('audio-files')
+            .createSignedUrl(storagePath, SIGNED_URL_TTL)
+          url = signedData?.signedUrl
+        } catch (err) {
+          saveError = err?.message || 'Unknown error'
+          failures.push({ name: f.name, reason: saveError })
+          console.error(`Failed to save "${f.name}":`, saveError)
+        }
+
+        // Fall back to an in-memory URL so the song is still playable this
+        // session even when saving failed
+        if (!url) url = URL.createObjectURL(f)
+        if (!coverUrl && tags?.picture) {
           try {
-            const blob = new Blob([data], { type: format || 'image/jpeg' })
-            coverUrl = URL.createObjectURL(blob)
+            const { data, format } = tags.picture
+            coverUrl = URL.createObjectURL(new Blob([data], { type: format || 'image/jpeg' }))
           } catch { coverUrl = null }
         }
-  
-        const songData = {
+
+        return {
+          id,
           title: tags?.title || f.name.replace(/\.[^/.]+$/, ''),
           fileName: f.name,
           artist: tags?.artist || '',
           album: tags?.album || '',
           gainDb: 0,
           bpm: null,
-        }
-  
-        const { error: dbError } = await supabase.from('tracks').upsert({
-          id,
-          user_id: currentUser.id,
-          title: songData.title,
-          artist: songData.artist,
-          album: songData.album,
-          storage_path: storagePath,
-        })
-        if (dbError) console.error('DB error:', dbError.message)
-  
-        return {
-          id,
-          ...songData,
           url,
           coverUrl,
           description: '',
@@ -627,9 +671,14 @@ function App() {
         }
       }),
     )
-  
-    console.log('newSongs:', newSongs)
-  
+
+    if (failures.length > 0) {
+      const saved = audioFiles.length - failures.length
+      showUploadNotice('error', `${failures.length} song${failures.length > 1 ? 's' : ''} could not be saved to your library (${failures[0].reason}). ${saved > 0 ? `${saved} saved. ` : ''}Unsaved songs will play until you refresh.`)
+    } else {
+      showUploadNotice('success', `${audioFiles.length} song${audioFiles.length > 1 ? 's' : ''} saved to your library.`)
+    }
+
     setSongs((prev) => {
       const existingIds = new Set(prev.map((s) => s.id))
       const toAdd = newSongs.filter((s) => !existingIds.has(s.id))
@@ -648,10 +697,9 @@ function App() {
         setSongs((prev) => prev.map((s) => s.id === song.id ? { ...s, gainDb, bpm } : s))
       }).catch(() => {})
     }
-  }, [])
+  }, [showUploadNotice])
 
   const handleUpload = (e) => {
-    console.log('handleUpload called', e.target.files)
     processAudioFiles(e.target.files || [])
     if (e?.target) e.target.value = ''
   }
@@ -677,6 +725,22 @@ function App() {
     setPlaylists((prev) =>
       prev.map((pl) => ({ ...pl, songIds: pl.songIds.filter((id) => id !== songId) })),
     )
+
+    // Remove from Supabase so the song doesn't reappear on refresh
+    const deleteRemote = async () => {
+      const { data: track } = await supabase
+        .from('tracks')
+        .select('storage_path')
+        .eq('id', songId)
+        .maybeSingle()
+      if (track?.storage_path) {
+        const dir = track.storage_path.split('/').slice(0, -1).join('/')
+        await supabase.storage.from('audio-files').remove([track.storage_path, `${dir}/cover`])
+      }
+      const { error } = await supabase.from('tracks').delete().eq('id', songId)
+      if (error) console.error('Failed to delete track:', error.message)
+    }
+    deleteRemote().catch((err) => console.error('Failed to delete track:', err?.message))
   }
 
   const handleSelectSong = (index) => {
@@ -1241,6 +1305,18 @@ function App() {
       <div className="aurora aurora-one" aria-hidden />
       <div className="aurora aurora-two" aria-hidden />
       <div className="aurora aurora-three" aria-hidden />
+      {uploadNotice && (
+        <div
+          role="status"
+          className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 max-w-md px-4 py-2.5 rounded-lg border bg-[#0c0c0e]/95 backdrop-blur text-xs leading-relaxed shadow-lg ${
+            uploadNotice.type === 'error'
+              ? 'border-red-500/40 text-red-300'
+              : 'border-white/15 text-gray-200'
+          }`}
+        >
+          {uploadNotice.message}
+        </div>
+      )}
       <audio
         ref={audioRef}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}

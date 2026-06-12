@@ -54,7 +54,7 @@ function UploadScreen({ onUpload, onDrop }) {
           </div>
           <input
             type="file"
-            accept="audio/*,video/webm,video/ogg,.webm,.ogg,.opus"
+            accept="audio/*,video/webm,video/ogg,.mp3,.m4a,.aac,.flac,.wav,.webm,.ogg,.opus"
             multiple
             className="hidden"
             onChange={onUpload}
