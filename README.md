@@ -1,18 +1,18 @@
 # listenWell
-listenWell is a customizable, local-first music player built for users who want full control over their audio experience.
+listenWell is a customizable music player built for users who want full control over their audio experience.
 
-Unlike traditional streaming platforms, listenWell does not host or distribute music. Instead, users upload their own audio files and manage them in a powerful, flexible interface designed for personalization and performance.
+Unlike traditional streaming platforms, listenWell has no catalog and does not distribute music. Users upload their own audio files, which are stored privately in their account and available from any device, and manage them in a powerful, flexible interface designed for personalization and performance.
 
 ## 🎧 Core Philosophy
 
-- **User-owned audio** — You control your files.
-- **Local-first storage** — No cloud dependency by default.
-- **Privacy-focused** — No selling or storing user data.
+- **User-owned audio** — You upload and control your own files.
+- **Your library, everywhere** — Songs are stored privately per account and sync across devices.
+- **Privacy-focused** — No selling user data, no algorithms, no recommendations.
 - **Highly customizable** — Built for power users.
 
 ## 🚀 Features (Planned & In Progress)
 
-- Upload and manage local audio files
+- Upload and manage your own audio files (synced to your account)
 - Edit metadata (title, artist, artwork)
 - Create and organize playlists
 - Playback speed control
@@ -22,11 +22,14 @@ Unlike traditional streaming platforms, listenWell does not host or distribute m
 
 ## 🛠 Tech Stack
 
-- React + Vite
-- TypeScript
+- React + Vite (JavaScript/JSX)
 - TailwindCSS
 - Web Audio API
-- IndexedDB (local storage)
+- Supabase (auth, database, file storage)
+
+## ⚙️ Backend Setup
+
+The app needs a Supabase project. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env`, then run `supabase/setup.sql` in the Supabase SQL Editor — it creates the `tracks` table, the private `audio-files` storage bucket, and the per-user access policies.
 
 ## 🎯 Project Goal
 
@@ -35,7 +38,7 @@ listenWell is designed as both a practical music management tool and a technical
 - Clean frontend architecture
 - Browser audio processing
 - State management
-- Local data persistence
+- Data persistence
 - Scalable UI design
 
 ---

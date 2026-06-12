@@ -236,7 +236,7 @@ function PlaylistDetailScreen({
       </div>
 
       {/* Body: track list + add panel */}
-      <div className="flex gap-4 flex-1 min-h-0">
+      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
         {/* Track list */}
         <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col overflow-hidden glass-card">
           <div className="px-4 py-3 border-b border-white/[0.06] shrink-0">
@@ -247,7 +247,7 @@ function PlaylistDetailScreen({
               <div className="flex flex-col items-center justify-center h-full gap-3 py-16 text-center">
                 <Music2 className="w-9 h-9 text-gray-700" />
                 <p className="text-sm text-gray-500">No songs yet.</p>
-                <p className="text-xs text-gray-600">Add songs from the panel on the right.</p>
+                <p className="text-xs text-gray-600">Add songs from the Add Songs panel.</p>
               </div>
             ) : (
               <DndContext
@@ -278,7 +278,7 @@ function PlaylistDetailScreen({
         </div>
 
         {/* Add songs panel */}
-        <div className="w-80 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col overflow-hidden glass-card shrink-0">
+        <div className="w-full max-h-[40%] lg:max-h-none lg:w-80 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col overflow-hidden glass-card shrink-0">
           <div className="px-4 py-3 border-b border-white/[0.06] shrink-0 space-y-2">
             <p className="text-[10px] uppercase tracking-widest text-gray-500">Add Songs</p>
             <div className="relative">

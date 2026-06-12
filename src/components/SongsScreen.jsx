@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
-import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil } from 'lucide-react'
+import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square } from 'lucide-react'
 import { GooeyInput } from '@/components/ui/gooey-input'
 
 function SongsScreen({
@@ -33,6 +33,8 @@ function SongsScreen({
   onEditSong,
   songsBgUrl = null,
   songsBgBlur = 8,
+  tileSize = 'medium',
+  onChangeTileSize,
 }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [scrollTop, setScrollTop] = useState(0)
@@ -104,9 +106,13 @@ function SongsScreen({
     }
   }, [visibleSongs.length])
 
-  const virtualColumns = viewportWidth >= 1024 ? 5 : viewportWidth >= 768 ? 4 : viewportWidth >= 640 ? 3 : 2
+  // Tile height is art (colWidth - 20px padding) + text block (60px incl. padding);
+  // row stride adds the grid gap
+  const baseColumns = viewportWidth >= 1024 ? 5 : viewportWidth >= 768 ? 4 : viewportWidth >= 640 ? 3 : 2
+  const virtualColumns = tileSize === 'small' ? baseColumns + 1 : tileSize === 'large' ? Math.max(1, baseColumns - 1) : baseColumns
   const virtualGap = viewportWidth >= 640 ? 20 : 16
-  const rowHeight = viewportWidth >= 640 ? 285 : 245
+  const colWidth = viewportWidth > 0 ? (viewportWidth - virtualGap * (virtualColumns - 1)) / virtualColumns : 220
+  const rowHeight = Math.round(colWidth + 60 + virtualGap)
   const virtualItems = useMemo(() => [...visibleSongs, { id: '__upload__', uploadTile: true }], [visibleSongs])
   const rowCount = Math.ceil(virtualItems.length / virtualColumns)
   const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - 1)
@@ -175,6 +181,29 @@ function SongsScreen({
             </AnimatePresence>
           </div>
 
+          {/* Tile size */}
+          {onChangeTileSize && (
+            <div className="shrink-0 flex items-center rounded-full border border-white/10 bg-white/[0.04] p-0.5" role="group" aria-label="Tile size">
+              {[
+                { value: 'small', label: 'Small tiles', Icon: Grid3x3 },
+                { value: 'medium', label: 'Medium tiles', Icon: Grid2x2 },
+                { value: 'large', label: 'Large tiles', Icon: Square },
+              ].map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={tileSize === value}
+                  onClick={() => onChangeTileSize(value)}
+                  className={`p-1.5 rounded-full transition-colors ${tileSize === value ? 'bg-violet-500/15 text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Search */}
           <div className="flex-1 flex items-center justify-end">
             <GooeyInput
@@ -199,7 +228,7 @@ function SongsScreen({
 
         {visibleSongs.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-sm text-gray-500 gap-3">
-            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center"><img src="/logo.svg" alt="Listenwell" className="w-7 h-7 brightness-0 invert opacity-40" /></span>
+            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center"><img src="/logo.svg" alt="Listenwell" className="w-7 h-7 opacity-70" /></span>
             <p>{normalizedQuery ? 'No songs match your search.' : songFilter === 'loved' ? 'No loved songs yet.' : 'No songs yet.'}</p>
             <button type="button" onClick={onGoToUpload} className="px-4 py-2 rounded-full bg-white text-black text-xs font-medium hover:bg-gray-100 transition">Upload music</button>
           </div>
@@ -246,10 +275,13 @@ function SongsScreen({
                 }
                 const i = songs.findIndex((s) => s.id === song.id)
                 return (
-                <motion.button
+                <motion.div
                   key={song.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${song.title || song.fileName} details`}
                   onClick={() => onSelectSong(i)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectSong(i) } }}
                   onContextMenu={(e) => openContextMenu(e, song, i)}
                   className={`relative flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-2.5 transition-all duration-200 song-tile ${i === selectedSongIndex ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-[#0c0c0e] bg-white/[0.08]' : 'hover:bg-white/[0.04]'}`}
                   whileHover={{ y: -4, scale: 1.03 }}
@@ -260,7 +292,7 @@ function SongsScreen({
                     {currentTrackIndex === i && isPlaying && (
                       <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-green-400 shadow-lg shadow-green-400/50 animate-pulse" />
                     )}
-                    <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                    <div className="tile-play-overlay absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
                       <button type="button" onClick={(e) => { e.stopPropagation(); onPlaySongClick(i) }} className="w-12 h-12 rounded-full bg-white/90 text-black flex items-center justify-center shadow-lg hover:scale-105 transition">
                         {currentTrackIndex === i && isPlaying
                           ? <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
@@ -279,7 +311,7 @@ function SongsScreen({
                       <Heart className="w-5 h-5" fill={lovedSongIds.includes(song.id) ? 'currentColor' : 'none'} />
                     </button>
                   </div>
-                </motion.button>
+                </motion.div>
               )})}
                 </div>
               </div>
@@ -288,7 +320,7 @@ function SongsScreen({
         )}
       </section>
 
-      <section className="w-full max-w-sm sm:max-w-md bg-white/[0.05] rounded-2xl border border-white/[0.08] p-5 flex flex-col gap-4 shrink-0 shadow-lg ml-1 sm:ml-2 glass-card parallax-card" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
+      <section className="w-full max-w-sm sm:max-w-md bg-white/[0.05] rounded-2xl border border-white/[0.08] p-5 hidden lg:flex flex-col gap-4 shrink-0 shadow-lg ml-1 sm:ml-2 glass-card parallax-card" onMouseMove={onParallaxMove} onMouseLeave={onParallaxLeave}>
         <h2 className="text-sm font-semibold tracking-[0.18em] uppercase text-gray-300">Details</h2>
         {selectedSong ? (
           <>

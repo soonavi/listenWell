@@ -15,13 +15,14 @@ No test suite configured.
 
 ## Architecture
 
-**ListenWell** is a fully client-side, local-first music player. No backend, no API keys, no accounts.
+**ListenWell** is a React SPA backed by Supabase (auth + Postgres + Storage). Users sign in with email/password; each user's songs are uploaded to a private `audio-files` storage bucket and indexed in a `tracks` table. There is no custom server — the client talks to Supabase directly via `src/lib/supabase.js`, configured by `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` in `.env`. The required schema, bucket, and RLS policies live in `supabase/setup.sql` (idempotent; run in the Supabase SQL Editor).
 
 ### State management
 
 All state lives in `src/App.jsx` (~1900 lines). There is no Context API, Redux, or Zustand — it's a single large component using `useState`/`useRef`/`useCallback`, passing props and callbacks down to presentational children. Before adding state, look for the relevant variable/handler already in `App.jsx`.
 
 ### Key state areas in `App.jsx`
+- **Auth**: `user`, `authLoading` — the app is gated behind `AuthScreen` until a Supabase session exists
 - **Library**: `songs` array with extracted ID3 metadata
 - **Playback**: `currentTrackIndex`, `isPlaying`, `currentTime`, `duration`, `volume`, `playbackRate`
 - **Organization**: `playlists`, `selectedPlaylistId`, `lovedSongIds`, `songFilter`, `songSortBy`
@@ -29,9 +30,10 @@ All state lives in `src/App.jsx` (~1900 lines). There is no Context API, Redux, 
 - **UI**: `activePage` (`upload` | `songs` | `playlists` | `detail`), `showSettings`, `settingsTab`
 
 ### Data persistence
-- `localStorage` for playlists, loved songs, and all settings
-- Files stay in memory (FileReader / Object URLs) — no IndexedDB yet
-- PWA: `public/sw.js` (cache-first), `public/manifest.json`
+- **Songs**: Supabase Storage (`audio-files` bucket, path `<user_id>/<track_id>/<file>`, cover art at `<user_id>/<track_id>/cover`) plus a `tracks` table row per song; loaded on login via 7-day signed URLs, so the library follows the account across devices
+- **Playlists, loved songs, play counts, recents, and settings**: synced to the `user_state` table (one JSONB row per user) — loaded on login, written debounced on change; `localStorage` remains the local cache and offline fallback
+- If a Supabase upload fails, the song falls back to an in-memory Object URL (playable for the session only) and the error is surfaced in a toast
+- PWA: `public/sw.js` (network-first navigations, cache-first hashed assets), `public/manifest.json`
 
 ### Audio pipeline
 - Web Audio API for playback and EQ
@@ -40,6 +42,7 @@ All state lives in `src/App.jsx` (~1900 lines). There is no Context API, Redux, 
 
 ### Tech stack
 - React 19 + Vite 7, JavaScript/JSX (no TypeScript)
+- `@supabase/supabase-js` for auth, database, and file storage
 - TailwindCSS 4, Framer Motion 12, Radix UI (dialog, slider)
 - `@dnd-kit` for drag-and-drop in playlists/queue
 - `lucide-react` for icons

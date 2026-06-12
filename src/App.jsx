@@ -6,6 +6,7 @@ import UploadScreen from './components/UploadScreen'
 import SongsScreen from './components/SongsScreen' 
 import PlaylistsScreen from './components/PlaylistsScreen'
 import PlaylistDetailScreen from './components/PlaylistDetailScreen'
+import HomeScreen from './components/HomeScreen'
 import NowPlayingOverlay from './components/NowPlayingOverlay'
 import UpNextPanel from './components/UpNextPanel'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
@@ -34,6 +35,7 @@ import {
   Keyboard,
   Library,
   Upload,
+  Home,
   SlidersVertical,
   Speaker,
   LayoutGrid,
@@ -126,6 +128,11 @@ function normalizeThemeId(themeId) {
     terminal: 'terminal',
     paper: 'paper',
     blueprint: 'blueprint',
+    chrome: 'chrome',
+    bubblegum: 'bubblegum',
+    ocean: 'ocean',
+    ember: 'ember',
+    moss: 'moss',
   }
   return map[themeId] || 'dark'
 }
@@ -210,9 +217,14 @@ async function readAudioTags(file) {
   }
 }
 
+// Signed URLs must outlive a listening session — 7 days
+const SIGNED_URL_TTL = 60 * 60 * 24 * 7
+
 function App() {
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [uploadNotice, setUploadNotice] = useState(null)
+  const uploadNoticeTimerRef = useRef(null)
   const [songs, setSongs] = useState([])
   const [selectedSongIndex, setSelectedSongIndex] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(null)
@@ -229,6 +241,7 @@ function App() {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null)
   const [songFilter, setSongFilter] = useState('all')
   const [songSortBy, setSongSortBy] = useState('default')
+  const [songTileSize, setSongTileSize] = useState(() => safeGetStorage('listenwell-tile-size', 'medium'))
   const [lovedSongIds, setLovedSongIds] = useState(() => parseStoredJSON('listenwell-loved', []))
   const [showNowPlayingAddMenu, setShowNowPlayingAddMenu] = useState(false)
   const [shuffle, setShuffle] = useState(false)
@@ -248,7 +261,7 @@ function App() {
   const visualizerDataRef = useRef(null)
   const visualizerFrameRef = useRef(null)
   const visualizerCanvasRef = useRef(null)
-  const [recentItems, setRecentItems] = useState([])
+  const [recentItems, setRecentItems] = useState(() => parseStoredJSON('listenwell-recent', []))
   const [theme, setTheme] = useState(() => normalizeThemeId(safeGetStorage('listenwell-theme', 'dark')))
   const [eqRingColor, setEqRingColor] = useState(() => safeGetStorage('listenwell-eq-ring-color', 'accent'))
   const [customEqGains, setCustomEqGains] = useState(() => {
@@ -327,34 +340,38 @@ function App() {
         .from('tracks')
         .select('*')
         .eq('user_id', user.id)
-  
-      if (error || !tracks?.length) return
-  
-      const songsWithUrls = await Promise.all(
-        tracks.map(async (track) => {
-          const { data: signedData } = await supabase.storage
-            .from('audio-files')
-            .createSignedUrl(track.storage_path, 3600)
-  
-          return {
-            id: track.id,
-            title: track.title,
-            fileName: track.storage_path.split('/').pop(),
-            artist: track.artist || '',
-            album: track.album || '',
-            url: signedData?.signedUrl || '',
-            coverUrl: null,
-            description: '',
-            lyrics: '',
-            gainDb: 0,
-            bpm: null,
-          }
-        })
-      )
-  
+
+      if (error) {
+        console.error('Failed to load library:', error.message)
+        return
+      }
+      if (!tracks?.length) return
+
+      const audioPaths = tracks.map((t) => t.storage_path)
+      const coverPaths = tracks.map((t) => `${t.storage_path.split('/').slice(0, -1).join('/')}/cover`)
+
+      const [{ data: audioUrls }, { data: coverUrls }] = await Promise.all([
+        supabase.storage.from('audio-files').createSignedUrls(audioPaths, SIGNED_URL_TTL),
+        supabase.storage.from('audio-files').createSignedUrls(coverPaths, SIGNED_URL_TTL),
+      ])
+
+      const songsWithUrls = tracks.map((track, i) => ({
+        id: track.id,
+        title: track.title,
+        fileName: track.storage_path.split('/').pop(),
+        artist: track.artist || '',
+        album: track.album || '',
+        url: audioUrls?.[i]?.signedUrl || '',
+        coverUrl: coverUrls?.[i]?.signedUrl || null,
+        description: '',
+        lyrics: '',
+        gainDb: 0,
+        bpm: null,
+      }))
+
       setSongs(songsWithUrls)
     }
-  
+
     loadSongs()
   }, [user])
 
@@ -560,65 +577,100 @@ function App() {
     setBlurAmount(preset.blurAmount)
   }
 
+  const showUploadNotice = useCallback((type, message) => {
+    setUploadNotice({ type, message })
+    window.clearTimeout(uploadNoticeTimerRef.current)
+    uploadNoticeTimerRef.current = window.setTimeout(() => setUploadNotice(null), 7000)
+  }, [])
+
   const processAudioFiles = useCallback(async (fileList) => {
-    const { data: { user: currentUser } } = await supabase.auth.getUser()
-    if (!currentUser) return
-  
+    const { data: { session } } = await supabase.auth.getSession()
+    const currentUser = session?.user
+    if (!currentUser) {
+      showUploadNotice('error', 'You must be signed in to upload songs.')
+      return
+    }
+
     const files = Array.from(fileList || [])
     const audioFiles = files.filter((f) => f.type.startsWith('audio/') || f.type === 'video/webm' || f.type === 'video/ogg' || f.name.match(/\.(webm|ogg|opus|m4a)$/i))
-    if (audioFiles.length === 0) return
-  
+    if (audioFiles.length === 0) {
+      if (files.length > 0) showUploadNotice('error', 'No supported audio files were selected.')
+      return
+    }
+
+    const failures = []
     const newSongs = await Promise.all(
       audioFiles.map(async (f) => {
         const id = crypto.randomUUID()
-        const tags = await readAudioTags(f)
-  
-        const sanitizedName = f.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
-        const storagePath = `${currentUser.id}/${id}/${sanitizedName}`
-  
-        const { error: uploadError } = await supabase.storage
-          .from('audio-files')
-          .upload(storagePath, f, { upsert: true })
-  
-        if (uploadError) console.error('Upload failed:', uploadError.message)
-  
-        const { data: signedData } = await supabase.storage
-          .from('audio-files')
-          .createSignedUrl(storagePath, 3600)
-  
-        const url = signedData?.signedUrl || URL.createObjectURL(f)
-  
+        let tags = null
+        let saveError = null
+        let url = null
         let coverUrl = null
-        if (tags?.picture) {
-          const { data, format } = tags.picture
+
+        try {
+          tags = await readAudioTags(f)
+
+          const sanitizedName = f.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+          const storagePath = `${currentUser.id}/${id}/${sanitizedName}`
+
+          const { error: uploadError } = await supabase.storage
+            .from('audio-files')
+            .upload(storagePath, f, { upsert: true })
+          if (uploadError) throw uploadError
+
+          if (tags?.picture) {
+            const { data, format } = tags.picture
+            const coverBlob = new Blob([data], { type: format || 'image/jpeg' })
+            // Cover lives at a fixed path next to the audio so loadSongs can find it
+            const { error: coverError } = await supabase.storage
+              .from('audio-files')
+              .upload(`${currentUser.id}/${id}/cover`, coverBlob, { upsert: true, contentType: format || 'image/jpeg' })
+            if (!coverError) {
+              const { data: coverSigned } = await supabase.storage
+                .from('audio-files')
+                .createSignedUrl(`${currentUser.id}/${id}/cover`, SIGNED_URL_TTL)
+              coverUrl = coverSigned?.signedUrl || null
+            }
+          }
+
+          const { error: dbError } = await supabase.from('tracks').insert({
+            id,
+            user_id: currentUser.id,
+            title: tags?.title || f.name.replace(/\.[^/.]+$/, ''),
+            artist: tags?.artist || '',
+            album: tags?.album || '',
+            storage_path: storagePath,
+          })
+          if (dbError) throw dbError
+
+          const { data: signedData } = await supabase.storage
+            .from('audio-files')
+            .createSignedUrl(storagePath, SIGNED_URL_TTL)
+          url = signedData?.signedUrl
+        } catch (err) {
+          saveError = err?.message || 'Unknown error'
+          failures.push({ name: f.name, reason: saveError })
+          console.error(`Failed to save "${f.name}":`, saveError)
+        }
+
+        // Fall back to an in-memory URL so the song is still playable this
+        // session even when saving failed
+        if (!url) url = URL.createObjectURL(f)
+        if (!coverUrl && tags?.picture) {
           try {
-            const blob = new Blob([data], { type: format || 'image/jpeg' })
-            coverUrl = URL.createObjectURL(blob)
+            const { data, format } = tags.picture
+            coverUrl = URL.createObjectURL(new Blob([data], { type: format || 'image/jpeg' }))
           } catch { coverUrl = null }
         }
-  
-        const songData = {
+
+        return {
+          id,
           title: tags?.title || f.name.replace(/\.[^/.]+$/, ''),
           fileName: f.name,
           artist: tags?.artist || '',
           album: tags?.album || '',
           gainDb: 0,
           bpm: null,
-        }
-  
-        const { error: dbError } = await supabase.from('tracks').upsert({
-          id,
-          user_id: currentUser.id,
-          title: songData.title,
-          artist: songData.artist,
-          album: songData.album,
-          storage_path: storagePath,
-        })
-        if (dbError) console.error('DB error:', dbError.message)
-  
-        return {
-          id,
-          ...songData,
           url,
           coverUrl,
           description: '',
@@ -627,9 +679,14 @@ function App() {
         }
       }),
     )
-  
-    console.log('newSongs:', newSongs)
-  
+
+    if (failures.length > 0) {
+      const saved = audioFiles.length - failures.length
+      showUploadNotice('error', `${failures.length} song${failures.length > 1 ? 's' : ''} could not be saved to your library (${failures[0].reason}). ${saved > 0 ? `${saved} saved. ` : ''}Unsaved songs will play until you refresh.`)
+    } else {
+      showUploadNotice('success', `${audioFiles.length} song${audioFiles.length > 1 ? 's' : ''} saved to your library.`)
+    }
+
     setSongs((prev) => {
       const existingIds = new Set(prev.map((s) => s.id))
       const toAdd = newSongs.filter((s) => !existingIds.has(s.id))
@@ -648,10 +705,9 @@ function App() {
         setSongs((prev) => prev.map((s) => s.id === song.id ? { ...s, gainDb, bpm } : s))
       }).catch(() => {})
     }
-  }, [])
+  }, [showUploadNotice])
 
   const handleUpload = (e) => {
-    console.log('handleUpload called', e.target.files)
     processAudioFiles(e.target.files || [])
     if (e?.target) e.target.value = ''
   }
@@ -677,6 +733,22 @@ function App() {
     setPlaylists((prev) =>
       prev.map((pl) => ({ ...pl, songIds: pl.songIds.filter((id) => id !== songId) })),
     )
+
+    // Remove from Supabase so the song doesn't reappear on refresh
+    const deleteRemote = async () => {
+      const { data: track } = await supabase
+        .from('tracks')
+        .select('storage_path')
+        .eq('id', songId)
+        .maybeSingle()
+      if (track?.storage_path) {
+        const dir = track.storage_path.split('/').slice(0, -1).join('/')
+        await supabase.storage.from('audio-files').remove([track.storage_path, `${dir}/cover`])
+      }
+      const { error } = await supabase.from('tracks').delete().eq('id', songId)
+      if (error) console.error('Failed to delete track:', error.message)
+    }
+    deleteRemote().catch((err) => console.error('Failed to delete track:', err?.message))
   }
 
   const handleSelectSong = (index) => {
@@ -828,10 +900,103 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-loved', JSON.stringify(lovedSongIds)) }, [lovedSongIds])
   useEffect(() => { safeSetStorage('listenwell-playlists', JSON.stringify(playlists)) }, [playlists])
   useEffect(() => { safeSetStorage('listenwell-playcounts', JSON.stringify(playCounts)) }, [playCounts])
+  useEffect(() => { safeSetStorage('listenwell-recent', JSON.stringify(recentItems)) }, [recentItems])
   useEffect(() => { safeSetStorage('listenwell-vnorm', String(volumeNormalization)) }, [volumeNormalization])
   useEffect(() => { safeSetStorage('listenwell-crossfade', String(crossfadeDuration)) }, [crossfadeDuration])
   useEffect(() => { safeSetStorage('listenwell-art-color', String(artColorExtract)) }, [artColorExtract])
   useEffect(() => { if (displayName) safeSetStorage('listenwell-display-name', displayName) }, [displayName])
+  useEffect(() => { safeSetStorage('listenwell-tile-size', songTileSize) }, [songTileSize])
+
+  // Sync per-user state (playlists, loved, settings) with Supabase so it
+  // follows the account across devices. localStorage stays as the local cache.
+  const userStateLoadedRef = useRef(false)
+  const userStateTimerRef = useRef(null)
+
+  const buildSyncedState = () => ({
+    playlists,
+    lovedSongIds,
+    playCounts,
+    recentItems,
+    theme,
+    repeat,
+    volumeNormalization,
+    crossfadeDuration,
+    artColorExtract,
+    eqRingColor,
+    customEqGains,
+    savedPresets,
+    auroraIntensity,
+    glowSoftness,
+    blurAmount,
+    profilePicUrl,
+    displayName,
+    songTileSize,
+  })
+
+  useEffect(() => {
+    userStateLoadedRef.current = false
+    if (!user) return
+    let cancelled = false
+
+    const loadUserState = async () => {
+      const { data: row, error } = await supabase
+        .from('user_state')
+        .select('data')
+        .eq('user_id', user.id)
+        .maybeSingle()
+      if (cancelled) return
+      if (error) {
+        // Leave the loaded flag unset so a failed read is never overwritten
+        console.error('Failed to load synced state:', error.message)
+        return
+      }
+      const d = row?.data
+      if (d && typeof d === 'object') {
+        if (Array.isArray(d.playlists)) setPlaylists(d.playlists)
+        if (Array.isArray(d.lovedSongIds)) setLovedSongIds(d.lovedSongIds)
+        if (d.playCounts && typeof d.playCounts === 'object') setPlayCounts(d.playCounts)
+        if (Array.isArray(d.recentItems)) setRecentItems(d.recentItems)
+        if (typeof d.theme === 'string') setTheme(normalizeThemeId(d.theme))
+        if (typeof d.repeat === 'string') setRepeat(d.repeat)
+        if (typeof d.volumeNormalization === 'boolean') setVolumeNormalization(d.volumeNormalization)
+        if (typeof d.crossfadeDuration === 'number') setCrossfadeDuration(d.crossfadeDuration)
+        if (typeof d.artColorExtract === 'boolean') setArtColorExtract(d.artColorExtract)
+        if (typeof d.eqRingColor === 'string') setEqRingColor(d.eqRingColor)
+        if (Array.isArray(d.customEqGains) && d.customEqGains.length === EQ_BANDS.length) setCustomEqGains(d.customEqGains.map(Number))
+        if (Array.isArray(d.savedPresets)) setSavedPresets(d.savedPresets)
+        if (typeof d.auroraIntensity === 'number') setAuroraIntensity(d.auroraIntensity)
+        if (typeof d.glowSoftness === 'number') setGlowSoftness(d.glowSoftness)
+        if (typeof d.blurAmount === 'number') setBlurAmount(d.blurAmount)
+        if (typeof d.profilePicUrl === 'string' || d.profilePicUrl === null) setProfilePicUrl(d.profilePicUrl)
+        if (typeof d.displayName === 'string') setDisplayName(d.displayName)
+        if (typeof d.songTileSize === 'string') setSongTileSize(d.songTileSize)
+      } else {
+        // First login from this account: migrate this browser's local state up
+        const { error: pushError } = await supabase
+          .from('user_state')
+          .upsert({ user_id: user.id, data: buildSyncedState(), updated_at: new Date().toISOString() })
+        if (pushError) console.error('Failed to sync state:', pushError.message)
+      }
+      if (!cancelled) userStateLoadedRef.current = true
+    }
+
+    loadUserState()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+
+  useEffect(() => {
+    if (!user || !userStateLoadedRef.current) return
+    window.clearTimeout(userStateTimerRef.current)
+    userStateTimerRef.current = window.setTimeout(async () => {
+      const { error } = await supabase
+        .from('user_state')
+        .upsert({ user_id: user.id, data: buildSyncedState(), updated_at: new Date().toISOString() })
+      if (error) console.error('Failed to sync state:', error.message)
+    }, 1200)
+    return () => window.clearTimeout(userStateTimerRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize])
 
   // Apply per-song gain normalisation whenever the track changes
   useEffect(() => {
@@ -1241,6 +1406,18 @@ function App() {
       <div className="aurora aurora-one" aria-hidden />
       <div className="aurora aurora-two" aria-hidden />
       <div className="aurora aurora-three" aria-hidden />
+      {uploadNotice && (
+        <div
+          role="status"
+          className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 max-w-md px-4 py-2.5 rounded-lg border bg-[#0c0c0e]/95 backdrop-blur text-xs leading-relaxed shadow-lg ${
+            uploadNotice.type === 'error'
+              ? 'border-red-500/40 text-red-300'
+              : 'border-white/15 text-gray-200'
+          }`}
+        >
+          {uploadNotice.message}
+        </div>
+      )}
       <audio
         ref={audioRef}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
@@ -1300,15 +1477,30 @@ function App() {
           ))}
         </nav>
 
+        {/* Home — top right, before logo */}
+        <button
+          type="button"
+          onClick={() => setActivePage('home')}
+          aria-label="Home"
+          className={`magnetic-hover shrink-0 mr-2 sm:mr-3 flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full border transition ${
+            activePage === 'home'
+              ? 'bg-violet-500/15 border-violet-500/60 text-violet-100'
+              : 'border-white/15 bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/40 text-gray-300'
+          }`}
+        >
+          <Home className="w-4 h-4" />
+          <span className="hidden sm:inline text-xs sm:text-sm font-medium">Home</span>
+        </button>
+
         {/* Logo — right side of header */}
         <div ref={logoMenuRef} className="shrink-0 relative mr-3">
           <button
             type="button"
             onClick={() => setShowLogoMenu((prev) => !prev)}
-            className="flex items-center gap-3 px-5 py-2.5 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
+            className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
             aria-label="Menu"
           >
-            <img src="/logo.svg" alt="listenWell" className="w-11 h-11 brightness-0 invert opacity-80" />
+            <img src="/logo.svg" alt="listenWell" className="w-8 h-8 sm:w-11 sm:h-11" />
             <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
           </button>
           <AnimatePresence>
@@ -1359,12 +1551,46 @@ function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1 overflow-y-hidden px-6 sm:px-8 py-6">
+      <main className="relative z-10 flex-1 overflow-y-hidden px-4 sm:px-8 py-4 sm:py-6">
         <AnimatePresence>
+          {activePage === 'home' && (
+            <motion.div
+              key="home"
+              className="absolute inset-0 flex px-4 sm:px-8 py-4 sm:py-6"
+              variants={pageTransition}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            >
+              <HomeScreen
+                displayName={displayName}
+                songs={songs}
+                playlists={playlists}
+                lovedSongIds={lovedSongIds}
+                recentItems={recentItems}
+                currentTrackIndex={currentTrackIndex}
+                isPlaying={isPlaying}
+                onPlaySong={(songId) => {
+                  const index = songs.findIndex((s) => s.id === songId)
+                  if (index !== -1) handlePlaySongClick(index)
+                }}
+                onOpenPlaylist={(id) => {
+                  setSelectedPlaylistId(id)
+                  setActivePage('playlist-detail')
+                  markRecent('playlist', id)
+                }}
+                onToggleLoved={toggleLovedSong}
+                onGoToSongs={() => setActivePage('songs')}
+                onGoToPlaylists={() => setActivePage('playlists')}
+              />
+            </motion.div>
+          )}
+
           {activePage === 'upload' && (
             <motion.div
               key="upload"
-              className="absolute inset-0 flex px-6 sm:px-8 py-6"
+              className="absolute inset-0 flex px-4 sm:px-8 py-4 sm:py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
@@ -1378,7 +1604,7 @@ function App() {
           {activePage === 'library' && (
             <motion.div
               key="library"
-              className="absolute inset-0 mx-6 sm:mx-8 my-6"
+              className="absolute inset-0 mx-4 sm:mx-8 my-4 sm:my-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
@@ -1473,7 +1699,7 @@ function App() {
               exit="exit"
               transition={{ duration: 0.25, ease: 'easeOut' }}
             >
-              <div className="relative flex h-full px-6 sm:px-8 py-6">
+              <div className="relative flex h-full px-4 sm:px-8 py-4 sm:py-6">
               <SongsScreen
                 songsBgUrl={songsBgUrl}
                 songsBgBlur={songsBgBlur}
@@ -1486,6 +1712,8 @@ function App() {
                 sortBy={songSortBy}
                 lovedSongIds={lovedSongIds}
                 playCounts={playCounts}
+                tileSize={songTileSize}
+                onChangeTileSize={setSongTileSize}
                 onChangeSongFilter={setSongFilter}
                 onChangeSortBy={setSongSortBy}
                 onToggleLoved={toggleLovedSong}
@@ -1531,7 +1759,7 @@ function App() {
           {activePage === 'playlists' && (
             <motion.div
               key="playlists"
-              className="absolute inset-0 flex px-6 sm:px-8 py-6"
+              className="absolute inset-0 flex px-4 sm:px-8 py-4 sm:py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
@@ -1588,7 +1816,7 @@ function App() {
           {activePage === 'playlist-detail' && (
             <motion.div
               key="playlist-detail"
-              className="absolute inset-0 flex px-6 sm:px-8 py-6"
+              className="absolute inset-0 flex px-4 sm:px-8 py-4 sm:py-6"
               variants={pageTransition}
               initial="initial"
               animate="animate"
@@ -1738,10 +1966,13 @@ function App() {
                 <span className="font-medium">Volume normalisation</span>
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={volumeNormalization}
+                  aria-label="Volume normalisation"
                   onClick={() => setVolumeNormalization((prev) => !prev)}
-                  className={`relative w-9 h-5 rounded-full transition-colors ${volumeNormalization ? 'bg-violet-600' : 'bg-white/20'}`}
+                  className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${volumeNormalization ? 'bg-violet-600' : 'bg-white/20'}`}
                 >
-                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${volumeNormalization ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  <span className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${volumeNormalization ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
                 </button>
               </div>
               <div className="flex flex-col gap-1.5">
@@ -1782,7 +2013,7 @@ function App() {
               <div className="flex flex-col gap-1.5">
                 <span className="font-medium">Scene theme</span>
                 <div className="grid grid-cols-3 gap-2">
-                  {[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'sunset', label: 'Sunset' }, { id: 'pink', label: 'Pink' }, { id: 'cartoon', label: 'Cartoon' }, { id: 'terminal', label: 'Terminal' }, { id: 'paper', label: 'Paper' }, { id: 'blueprint', label: 'Blueprint' }].map((scene) => (
+                  {[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'sunset', label: 'Sunset' }, { id: 'pink', label: 'Pink' }, { id: 'cartoon', label: 'Cartoon' }, { id: 'terminal', label: 'Terminal' }, { id: 'paper', label: 'Paper' }, { id: 'blueprint', label: 'Blueprint' }, { id: 'chrome', label: 'Chrome' }, { id: 'bubblegum', label: 'Bubblegum' }, { id: 'ocean', label: 'Ocean' }, { id: 'ember', label: 'Ember' }, { id: 'moss', label: 'Moss' }].map((scene) => (
                     <button
                       key={scene.id}
                       type="button"
@@ -1907,10 +2138,13 @@ function App() {
                 </div>
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={artColorExtract}
+                  aria-label="Art color extraction"
                   onClick={() => setArtColorExtract((prev) => !prev)}
                   className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${artColorExtract ? 'bg-violet-600' : 'bg-white/20'}`}
                 >
-                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${artColorExtract ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  <span className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${artColorExtract ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
                 </button>
               </div>
               <button
@@ -1927,7 +2161,7 @@ function App() {
       )}
 
       {/* Bottom Player Bar */}
-      <footer className="app-chrome relative z-10 h-32 sm:h-36 border-t border-white/10 backdrop-blur-xl flex items-center px-4 sm:px-8 gap-4 sm:gap-8 w-full shrink-0 overflow-visible">
+      <footer className="app-chrome relative z-10 h-20 sm:h-36 border-t border-white/10 backdrop-blur-xl flex items-center px-3 sm:px-8 gap-2.5 sm:gap-8 w-full shrink-0 overflow-visible">
         <div className="cat-hanging" aria-hidden />
 
         {/* Album art — click to open NowPlaying overlay */}
@@ -1945,7 +2179,7 @@ function App() {
           }
         </div>
 
-        <div ref={nowPlayingMenuRef} className="w-40 sm:w-52 min-w-0 relative">
+        <div ref={nowPlayingMenuRef} className="flex-1 sm:flex-none sm:w-52 min-w-0 relative">
           <div className="flex items-center gap-2">
             <p className="text-sm sm:text-base font-semibold truncate text-white/95 flex-1">
               {nowPlaying ? nowPlaying.title || nowPlaying.fileName : 'No song selected'}
@@ -1954,7 +2188,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => setShowNowPlayingAddMenu((prev) => !prev)}
-                className="w-8 h-8 rounded-full border border-white/25 inline-flex items-center justify-center text-gray-300 hover:border-violet-400/60 hover:bg-violet-500/10 hover:text-violet-300 transition-colors shrink-0"
+                className="w-8 h-8 rounded-full border border-white/25 hidden sm:inline-flex items-center justify-center text-gray-300 hover:border-violet-400/60 hover:bg-violet-500/10 hover:text-violet-300 transition-colors shrink-0"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -2015,14 +2249,14 @@ function App() {
         </div>
 
         {/* Playback controls */}
-        <div className="flex-1 flex flex-col items-center gap-2 min-w-0 max-w-2xl">
-          <div className="flex gap-4 sm:gap-5 items-center">
+        <div className="shrink-0 sm:shrink sm:flex-1 flex flex-col items-center gap-2 min-w-0 max-w-2xl">
+          <div className="flex gap-2.5 sm:gap-5 items-center">
             <button
               type="button"
               onClick={() => setShuffle((prev) => !prev)}
               disabled={songs.length === 0}
               title={shuffle ? 'Shuffle on' : 'Shuffle off'}
-              className={`magnetic-hover p-1.5 sm:p-2 transition disabled:opacity-30 disabled:cursor-not-allowed ${shuffle ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
+              className={`magnetic-hover hidden sm:block p-1.5 sm:p-2 transition disabled:opacity-30 disabled:cursor-not-allowed ${shuffle ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
             >
               <Shuffle className="w-5 h-5" />
             </button>
@@ -2030,7 +2264,8 @@ function App() {
               type="button"
               onClick={handlePrev}
               disabled={songs.length === 0}
-              className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Previous track"
+              className="magnetic-hover hidden sm:block p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipBack className="w-6 h-6" />
             </button>
@@ -2038,7 +2273,8 @@ function App() {
               type="button"
               onClick={handlePlayPause}
               disabled={songs.length === 0}
-              className="magnetic-hover ring-pulse w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+              className="magnetic-hover ring-pulse w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               {isPlaying ? <Pause className="w-5 h-5" strokeWidth={1.75} /> : <Play className="w-5 h-5 ml-0.5" strokeWidth={1.75} />}
             </button>
@@ -2046,6 +2282,7 @@ function App() {
               type="button"
               onClick={handleNext}
               disabled={songs.length === 0}
+              aria-label="Next track"
               className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipForward className="w-6 h-6" />
@@ -2055,13 +2292,13 @@ function App() {
               onClick={handleToggleRepeat}
               disabled={songs.length === 0}
               title={repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'}
-              className={`magnetic-hover p-1.5 sm:p-2 transition disabled:opacity-30 disabled:cursor-not-allowed ${repeat !== 'off' ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
+              className={`magnetic-hover hidden sm:block p-1.5 sm:p-2 transition disabled:opacity-30 disabled:cursor-not-allowed ${repeat !== 'off' ? 'text-violet-400' : 'text-gray-500 hover:text-white'}`}
             >
               {repeat === 'one' ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
             </button>
           </div>
-          <div className="w-full flex items-center gap-3 text-xs sm:text-sm text-gray-500">
-            <span className="w-10 shrink-0 tabular-nums text-right">{formatTime(currentTime)}</span>
+          <div className="flex items-center gap-3 text-xs sm:text-sm text-gray-500 absolute left-3 right-3 -top-[5px] sm:static sm:w-full">
+            <span className="hidden sm:block w-10 shrink-0 tabular-nums text-right">{formatTime(currentTime)}</span>
             <input
               type="range"
               min={0}
@@ -2070,19 +2307,20 @@ function App() {
               value={Math.min(currentTime, duration || 0)}
               onInput={handleSeek}
               onChange={handleSeek}
+              aria-label="Seek"
               className="flex-1 h-2 rounded-full appearance-none bg-white/25 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
             />
-            <span className="w-10 shrink-0 tabular-nums">{formatTime(duration)}</span>
+            <span className="hidden sm:block w-10 shrink-0 tabular-nums">{formatTime(duration)}</span>
           </div>
           <canvas
             ref={visualizerCanvasRef}
-            className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10"
+            className="w-full h-8 rounded-lg bg-white/[0.04] border border-white/10 hidden sm:block"
             aria-label="Live audio visualizer"
           />
         </div>
 
         {/* Volume + utility buttons */}
-        <div className="flex items-center gap-2 sm:gap-3 text-gray-500 shrink-0">
+        <div className="hidden sm:flex items-center gap-3 text-gray-500 shrink-0">
           <Volume2 className="w-5 h-5" />
           <input
             type="range"
@@ -2092,6 +2330,7 @@ function App() {
             value={volume}
             onInput={handleVolumeChange}
             onChange={handleVolumeChange}
+            aria-label="Volume"
             className="w-20 sm:w-24 h-2 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
           />
           <button
@@ -2108,15 +2347,16 @@ function App() {
           ref={settingsButtonRef}
           type="button"
           onClick={() => (showSettings ? closeSettingsPanel() : openSettingsPanel())}
-          className="magnetic-hover ml-1 flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
+          aria-label="Settings"
+          className="magnetic-hover ml-1 flex items-center justify-center w-11 h-11 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
         >
-          <Settings2 className="w-7 h-7 sm:w-8 sm:h-8" />
+          <Settings2 className="w-5 h-5 sm:w-8 sm:h-8" />
         </button>
 
         <button
           type="button"
           onClick={() => setShowUpNext((prev) => !prev)}
-          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-14 h-14 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
+          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-11 h-11 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
           title="Up Next"
         >
           <ListMusic className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -2127,7 +2367,7 @@ function App() {
         <button
           type="button"
           onClick={() => setShowAccountDrawer(true)}
-          className="relative shrink-0 ml-auto flex items-center justify-center"
+          className="relative shrink-0 ml-auto hidden sm:flex items-center justify-center"
           style={{ width: 112, height: 112 }}
           title="Profile"
         >
