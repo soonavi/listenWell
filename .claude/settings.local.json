@@ -3,7 +3,24 @@
     "allow": [
       "Bash(npm run *)",
       "Bash(grep -E \"^C:\\\\\\\\Projects\\\\\\\\listenwell\\\\\\\\src\")",
-      "Bash(Read \"C:\\\\Users\\\\BENNET~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projects-listenwell\\\\f8113af6-2cb1-4440-a231-253a6a43f7ef\\\\tasks\\\\b5rlq02n9.output\")"
+      "Bash(Read \"C:\\\\Users\\\\BENNET~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Projects-listenwell\\\\f8113af6-2cb1-4440-a231-253a6a43f7ef\\\\tasks\\\\b5rlq02n9.output\")",
+      "Bash(curl -s -i -X POST \"https://vsnkrwunsbjkohfsxmpx.supabase.co/auth/v1/token?grant_type=password\" -H \"apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6\" -H \"Content-Type: application/json\" -d '{\"email\":\"test@example.com\",\"password\":\"wrongpass\"}')",
+      "Bash(curl -s -X POST \"https://vsnkrwunsbjkohfsxmpx.supabase.co//auth/v1/token?grant_type=password\" -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(curl -s -X POST \"https://vsnkrwunsbjkohfsxmpx.supabase.co/undefined/auth/v1/token?grant_type=password\" -H \"Content-Type: application/json\" -d '{}')",
+      "Bash(curl -s -X POST \"https://vsnkrwunsbjkohfsxmpx.supabase.co/auth/v1/token%20?grant_type=password\" -d '{}')",
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/undefined/auth/v1/token?grant_type=password -H 'apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6' -d '{}')",
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co//auth/v1/token?grant_type=password -H 'apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6' -d '{}')",
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/auth/v1/token%20?grant_type=password -H 'apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6' -d '{}')",
+      "Bash(curl -s -i -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/undefined/auth/v1/token?grant_type=password -H 'apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6' -d '{}')",
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/auth/v1/token/?grant_type=password -H 'apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6' -d '{}')",
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/auth/v1/?grant_type=password -H 'apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6' -d '{}')",
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/auth/v1/token -H 'apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6' -H 'Content-Type: application/json' -d '{\"email\":\"a@b.com\",\"password\":\"x\"}')",
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/auth/v1/auth/v1/token?grant_type=password -H 'apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6' -d '{}')",
+      "Bash(curl -s -X POST https://supabase.com/dashboard/project/vsnkrwunsbjkohfsxmpx/auth/v1/token?grant_type=password -H 'apikey: sb_publishable_qlMM_7SpWf-ZvoQtH-JXDA_i_H2KDn6' -d '{}')",
+      "WebSearch",
+      "Bash(curl -s https://vsnkrwunsbjkohfsxmpx.supabase.co/)",
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/?grant_type=password -d '{}')",
+      "Bash(curl -s -X POST https://vsnkrwunsbjkohfsxmpx.supabase.co/token?grant_type=password -H 'Content-Type: application/json' -d '{}')"
     ]
   }
 }

@@ -1,5 +1,5 @@
-// ListenWell service worker — cache-first for app shell
-const CACHE = 'listenwell-v1'
+// ListenWell service worker — network-first for navigations, cache-first for assets
+const CACHE = 'listenwell-v2'
 
 const PRECACHE = [
   '/',
@@ -29,6 +29,22 @@ self.addEventListener('fetch', (e) => {
   // Don't cache blob: object URLs (audio/image data)
   if (e.request.url.startsWith('blob:')) return
 
+  // Navigations (index.html): network-first so new deploys are picked up,
+  // falling back to cache when offline
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request).then((res) => {
+        if (res.ok) {
+          const clone = res.clone()
+          caches.open(CACHE).then((c) => c.put('/index.html', clone))
+        }
+        return res
+      }).catch(() => caches.match('/index.html')),
+    )
+    return
+  }
+
+  // Hashed assets: cache-first
   e.respondWith(
     caches.match(e.request).then((cached) => {
       if (cached) return cached
