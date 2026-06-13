@@ -225,6 +225,9 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true)
   const [uploadNotice, setUploadNotice] = useState(null)
   const uploadNoticeTimerRef = useRef(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [showMetadataModal, setShowMetadataModal] = useState(false)
+  const [pendingEditSongId, setPendingEditSongId] = useState(null)
   const [songs, setSongs] = useState([])
   const [selectedSongIndex, setSelectedSongIndex] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(null)
@@ -601,6 +604,7 @@ function App() {
 
     const files = Array.from(fileList || [])
     const audioFiles = files.filter((f) => f.type.startsWith('audio/') || f.type === 'video/webm' || f.type === 'video/ogg' || f.name.match(/\.(webm|ogg|opus|m4a)$/i))
+    if (audioFiles.length > 0) setIsUploading(true)
     if (audioFiles.length === 0) {
       if (files.length > 0) showUploadNotice('error', 'No supported audio files were selected.')
       return
@@ -695,6 +699,8 @@ function App() {
       showUploadNotice('success', `${audioFiles.length} song${audioFiles.length > 1 ? 's' : ''} saved to your library.`)
     }
 
+    setIsUploading(false)
+
     setSongs((prev) => {
       const existingIds = new Set(prev.map((s) => s.id))
       const toAdd = newSongs.filter((s) => !existingIds.has(s.id))
@@ -705,7 +711,12 @@ function App() {
       setSelectedSongIndex(0)
       setCurrentTrackIndex(0)
     }
-  
+
+    // Prompt the user to edit the new song's metadata once it's in the library.
+    // Resolved to a row index by the effect below, so it works regardless of
+    // how the songs array settles after the async upload.
+    if (newSongs.length > 0) setPendingEditSongId(newSongs[0].id)
+
     for (const song of newSongs) {
       const f = song._file
       if (!f) continue
@@ -809,8 +820,18 @@ function App() {
 
   const handleEditSongFromContext = useCallback((songIndex) => {
     setSelectedSongIndex(songIndex)
-    // Do NOT set currentTrackIndex — we just want to show the Details panel
+    setShowMetadataModal(true)
   }, [])
+
+  // After an upload finishes, select the new song and open the metadata editor
+  useEffect(() => {
+    if (!pendingEditSongId) return
+    const idx = songs.findIndex((s) => s.id === pendingEditSongId)
+    if (idx === -1) return
+    setSelectedSongIndex(idx)
+    setShowMetadataModal(true)
+    setPendingEditSongId(null)
+  }, [pendingEditSongId, songs])
 
   const handleProfilePicUpload = (e) => {
     const file = e.target.files?.[0]
@@ -1380,14 +1401,38 @@ function App() {
   const handleCoverUpload = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+    const song = selectedSongIndex !== null ? songs[selectedSongIndex] : null
     setSongs((prev) =>
-      prev.map((song, index) =>
-        index === selectedSongIndex ? { ...song, coverUrl: URL.createObjectURL(file) } : song,
+      prev.map((s, index) =>
+        index === selectedSongIndex ? { ...s, coverUrl: URL.createObjectURL(file) } : s,
       ),
     )
+    // Persist the cover to storage so it survives a refresh and other devices
+    if (song?.id && user) {
+      supabase.storage
+        .from('audio-files')
+        .upload(`${user.id}/${song.id}/cover`, file, { upsert: true, contentType: file.type || 'image/jpeg' })
+        .then(({ error }) => { if (error) console.error('Cover upload failed:', error.message) })
+    }
   }
 
+  // Persist edited title/artist/album back to the tracks table
+  const saveSongMetadata = useCallback(async (song) => {
+    if (!song?.id || !user) return
+    const { error } = await supabase
+      .from('tracks')
+      .update({ title: song.title || '', artist: song.artist || '', album: song.album || '' })
+      .eq('id', song.id)
+      .eq('user_id', user.id)
+    if (error) console.error('Failed to save metadata:', error.message)
+  }, [user])
+
   const selectedSong = selectedSongIndex !== null ? songs[selectedSongIndex] : null
+
+  const closeMetadataModal = () => {
+    if (selectedSong?.id) saveSongMetadata(selectedSong)
+    setShowMetadataModal(false)
+  }
 
   const pageTransition = {
     initial: { opacity: 0, y: 14 },
@@ -1445,6 +1490,15 @@ function App() {
           {uploadNotice.message}
         </div>
       )}
+      {isUploading && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#0c0c0e]/70 backdrop-blur-sm" role="status" aria-live="polite">
+          <div className="flex flex-col items-center gap-4 px-8 py-7 rounded-2xl border border-white/10 bg-[#0c0c0e]/90 shadow-2xl">
+            <div className="w-10 h-10 rounded-full border-2 border-violet-500/30 border-t-violet-400 animate-spin" />
+            <p className="text-sm text-gray-200 font-medium">Uploading your music…</p>
+            <p className="text-xs text-gray-500">Saving to your library</p>
+          </div>
+        </div>
+      )}
       <audio
         ref={audioRef}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
@@ -1466,8 +1520,9 @@ function App() {
 
       {/* Header */}
       <header className="app-chrome relative z-20 shrink-0 h-16 sm:h-20 border-b border-white/10 flex items-center justify-end px-4 sm:px-8">
-        {/* Now Playing indicator — top left */}
-        <div className="absolute left-4 sm:left-8 flex items-center gap-2 min-w-0 max-w-[260px] sm:max-w-[340px]">
+        {/* Now Playing indicator — top left (hidden on mobile so it can't
+            overlap the Home button; the footer shows the track there instead) */}
+        <div className="absolute left-4 sm:left-8 hidden sm:flex items-center gap-2 min-w-0 max-w-[260px] sm:max-w-[340px]">
           {nowPlaying ? (
             <>
               <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_2px_rgba(74,222,128,0.55)] animate-pulse shrink-0" />
@@ -2292,9 +2347,9 @@ function App() {
               onClick={handlePrev}
               disabled={songs.length === 0}
               aria-label="Previous track"
-              className="magnetic-hover hidden sm:block p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <SkipBack className="w-6 h-6" />
+              <SkipBack className="w-6 h-6 sm:w-6 sm:h-6" />
             </button>
             <button
               type="button"
@@ -2680,6 +2735,74 @@ function App() {
       <AnimatePresence>
         {showKeyboardShortcuts && (
           <KeyboardShortcutsModal onClose={() => setShowKeyboardShortcuts(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* Metadata editor — opens after upload and from the song context menu.
+          Works on every screen size, unlike the desktop-only Details panel. */}
+      <AnimatePresence>
+        {showMetadataModal && selectedSong && (
+          <motion.div
+            className="fixed inset-0 z-[160] flex items-end sm:items-center justify-center p-0 sm:p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeMetadataModal} />
+            <motion.div
+              className="relative z-10 w-full sm:max-w-md max-h-[88vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-white/12 bg-[#0f0e14] shadow-2xl p-5 flex flex-col gap-4 glass-card"
+              initial={{ y: 40, opacity: 0, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 40, opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="section-title text-sm text-white">Edit details</h2>
+                <button type="button" onClick={closeMetadataModal} className="text-xs text-gray-400 hover:text-white transition-colors px-2 py-1">Done</button>
+              </div>
+
+              <div className="flex gap-4 items-center">
+                <div className="w-20 h-20 rounded-xl bg-white/[0.06] flex items-center justify-center overflow-hidden shrink-0">
+                  {selectedSong.coverUrl
+                    ? <img src={selectedSong.coverUrl} alt="" className="w-full h-full object-cover" />
+                    : <Music2 className="w-8 h-8 text-white/50" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-500 truncate mb-1.5">{selectedSong.fileName}</p>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer text-violet-300 hover:text-violet-200 text-xs font-medium">
+                    <ImagePlus className="w-3.5 h-3.5" /> Change cover
+                    <input type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500 font-medium">Title</label>
+                <input type="text" value={selectedSong.title} onChange={(e) => handleMetadataChange('title', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50" placeholder="Song title" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500 font-medium">Artist</label>
+                <input type="text" value={selectedSong.artist} onChange={(e) => handleMetadataChange('artist', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50" placeholder="Artist name" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500 font-medium">Album</label>
+                <input type="text" value={selectedSong.album} onChange={(e) => handleMetadataChange('album', e.target.value)} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50" placeholder="Album name" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-gray-500 font-medium">Description / notes</label>
+                <textarea value={selectedSong.description} onChange={(e) => handleMetadataChange('description', e.target.value)} rows={2} className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white resize-none focus:outline-none focus:border-violet-500/50" placeholder="Optional notes" />
+              </div>
+
+              <button
+                type="button"
+                onClick={closeMetadataModal}
+                className="ui-btn-primary w-full text-center py-2.5 text-sm font-semibold rounded-lg mt-1"
+              >
+                Save details
+              </button>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
