@@ -19,6 +19,32 @@ function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist,
     setSelectedAccent(null)
   }
 
+  // Downscale to a compact data URL so the cover survives a refresh and syncs
+  // across devices. A blob: object URL (the old behaviour) dies on reload,
+  // which left a broken image.
+  const fileToCoverDataUrl = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const size = 400
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        const scale = Math.max(size / img.width, size / img.height)
+        const w = img.width * scale
+        const h = img.height * scale
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
+        resolve(canvas.toDataURL('image/jpeg', 0.82))
+      }
+      img.onerror = reject
+      img.src = reader.result
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+
   const handleSubmit = (e) => {
     e.preventDefault()
     const trimmed = name.trim()
@@ -134,11 +160,12 @@ function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist,
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files?.[0]
                       if (!file) return
-                      setCoverUrl(URL.createObjectURL(file))
                       setCoverName(file.name)
+                      try { setCoverUrl(await fileToCoverDataUrl(file)) }
+                      catch { setCoverUrl(URL.createObjectURL(file)) }
                     }}
                   />
                 </label>
