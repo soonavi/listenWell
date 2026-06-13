@@ -5,12 +5,17 @@
 -- safe to run more than once.
 --
 -- The app requires:
---   1. a `tracks` table with row-level security scoped to each user
---   2. a private `audio-files` storage bucket where each user can manage
+--   1. a `tracks` table (one row per uploaded song), RLS-scoped per user
+--   2. a `user_state` table (playlists, loved songs, settings), per user
+--   3. a private `audio-files` storage bucket where each user can manage
 --      files under a folder named after their user id
 --
--- If either is missing or its policies are missing, uploads fail silently
--- in older builds of the app (newer builds show the error in a toast).
+-- Symptoms when this has NOT been run on the project:
+--   - "Could not find the table 'public.user_state' in the schema cache"
+--   - "permission denied for table tracks"
+--   - 403 responses from storage, and uploads that never persist
+--
+-- Run the WHOLE file at once (Supabase Dashboard -> SQL Editor -> Run).
 
 -- 1. Tracks table ------------------------------------------------------------
 
@@ -51,6 +56,13 @@ create policy "Users can delete own tracks"
   to authenticated
   using (auth.uid() = user_id);
 
+-- Table-level privileges. RLS policies above decide WHICH rows a user can
+-- touch, but the role still needs the base GRANT or every query fails with
+-- "permission denied for table tracks". Supabase normally grants these by
+-- default; we set them explicitly so this script works even when the table
+-- was created some other way.
+grant select, insert, update, delete on public.tracks to authenticated;
+
 -- 2. Per-user synced state (playlists, loved songs, settings) -----------------
 -- One JSONB row per user; the client loads it on login and writes it
 -- (debounced) whenever any synced value changes.
@@ -87,6 +99,8 @@ create policy "Users can delete own state"
   on public.user_state for delete
   to authenticated
   using (auth.uid() = user_id);
+
+grant select, insert, update, delete on public.user_state to authenticated;
 
 -- 3. Storage bucket ----------------------------------------------------------
 
@@ -132,3 +146,9 @@ create policy "Users can delete own audio"
     bucket_id = 'audio-files'
     and (storage.foldername(name))[1] = auth.uid()::text
   );
+
+-- 4. Refresh the API schema cache --------------------------------------------
+-- PostgREST (the REST API) caches the schema. Without this, a freshly
+-- created table can return "Could not find the table 'public.<x>' in the
+-- schema cache" until the cache reloads on its own.
+notify pgrst, 'reload schema';
