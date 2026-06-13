@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Eye, EyeOff } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 
 function onParallaxMove(e) {
@@ -25,16 +25,29 @@ export default function AuthScreen({ onAuth }) {
   const [mode, setMode] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState(null)
   const [showWhy, setShowWhy] = useState(false)
+
+  const switchMode = (key) => {
+    setMode(key)
+    setError(null)
+    setMessage(null)
+    setConfirmPassword('')
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (loading || !email || !password) return
     setError(null)
     setMessage(null)
+    if (mode === 'signup') {
+      if (password.length < 6) { setError('Password must be at least 6 characters.'); return }
+      if (password !== confirmPassword) { setError('Passwords do not match.'); return }
+    }
     setLoading(true)
     if (mode === 'login') {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
@@ -79,7 +92,7 @@ export default function AuthScreen({ onAuth }) {
               type="button"
               role="tab"
               aria-selected={mode === key}
-              onClick={() => { setMode(key); setError(null); setMessage(null) }}
+              onClick={() => switchMode(key)}
               className={`relative block w-full py-2.5 text-center rounded-md text-base font-medium transition-colors ${
                 mode === key ? 'text-violet-100' : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]'
               }`}
@@ -111,17 +124,40 @@ export default function AuthScreen({ onAuth }) {
               onChange={(e) => setEmail(e.target.value)}
               className="ui-input w-full rounded-[10px] px-4 py-3.5 text-base transition-colors focus:outline-none"
             />
-            <input
-              type="password"
-              name="password"
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              aria-label="Password"
-              placeholder="Password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="ui-input w-full rounded-[10px] px-4 py-3.5 text-base transition-colors focus:outline-none"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                name="password"
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                aria-label="Password"
+                placeholder="Password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="ui-input w-full rounded-[10px] px-4 py-3.5 pr-12 text-base transition-colors focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+            {mode === 'signup' && (
+              <input
+                type={showPassword ? 'text' : 'password'}
+                name="confirmPassword"
+                autoComplete="new-password"
+                aria-label="Confirm password"
+                placeholder="Confirm password"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="ui-input w-full rounded-[10px] px-4 py-3.5 text-base transition-colors focus:outline-none"
+              />
+            )}
           </div>
 
           {/* Feedback */}

@@ -234,9 +234,15 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [volume, setVolume] = useState(0.75)
-  const [playbackRate, setPlaybackRate] = useState(1)
-  const [eqPreset, setEqPreset] = useState('normal')
+  const [volume, setVolume] = useState(() => {
+    const v = Number(safeGetStorage('listenwell-volume', '0.75'))
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.75
+  })
+  const [playbackRate, setPlaybackRate] = useState(() => {
+    const r = Number(safeGetStorage('listenwell-rate', '1'))
+    return Number.isFinite(r) ? clampPlaybackRate(r) : 1
+  })
+  const [eqPreset, setEqPreset] = useState(() => safeGetStorage('listenwell-eqpreset', 'normal'))
   const [activePage, setActivePage] = useState('upload')
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState('playback')
@@ -260,6 +266,7 @@ function App() {
   const sourceNodeRef = useRef(null)
   const gainNodeRef = useRef(null)
   const bassFilterRef = useRef(null)
+  const trebleFilterRef = useRef(null)
   const analyserRef = useRef(null)
   const visualizerDataRef = useRef(null)
   const visualizerFrameRef = useRef(null)
@@ -411,9 +418,12 @@ function App() {
       const source = ctx.createMediaElementSource(audioEl)
       const gain = ctx.createGain()
       const bass = ctx.createBiquadFilter()
+      const treble = ctx.createBiquadFilter()
       const analyser = ctx.createAnalyser()
       bass.type = 'lowshelf'
       bass.frequency.value = 200
+      treble.type = 'highshelf'
+      treble.frequency.value = 3500
       analyser.fftSize = 128
       // Custom equalizer chain: low shelf, peaking mids, high shelf
       const eqFilters = EQ_BANDS.map(({ freq }, i) => {
@@ -426,7 +436,8 @@ function App() {
       })
       source.connect(gain)
       gain.connect(bass)
-      let prev = bass
+      bass.connect(treble)
+      let prev = treble
       for (const f of eqFilters) {
         prev.connect(f)
         prev = f
@@ -436,6 +447,7 @@ function App() {
       sourceNodeRef.current = source
       gainNodeRef.current = gain
       bassFilterRef.current = bass
+      trebleFilterRef.current = treble
       eqFiltersRef.current = eqFilters
       analyserRef.current = analyser
       visualizerDataRef.current = new Uint8Array(analyser.frequencyBinCount)
@@ -878,6 +890,10 @@ function App() {
     if (!audio || currentTrackIndex == null || !currentTrackUrl) return
     audio.src = currentTrackUrl
     audio.currentTime = 0
+    // A new src resets playbackRate to 1; re-apply the user's speed and keep
+    // pitch natural rather than chipmunked.
+    audio.preservesPitch = true
+    audio.playbackRate = effectivePlaybackRate
     if (isPlaying) audio.play().catch(() => setIsPlaying(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrackIndex, currentTrackUrl])
@@ -902,12 +918,22 @@ function App() {
   }, [effectivePlaybackRate])
 
   useEffect(() => {
-    if (eqPreset === 'bass') {
-      ensureAudioGraph()
-      if (bassFilterRef.current) bassFilterRef.current.gain.value = 10
-    } else {
-      if (bassFilterRef.current) bassFilterRef.current.gain.value = 0
+    ensureAudioGraph()
+    const ctx = audioContextRef.current
+    const bass = bassFilterRef.current
+    const treble = trebleFilterRef.current
+    if (!ctx || !bass || !treble) return
+    // Moderate boosts (was +10dB, which clipped/distorted), ramped smoothly
+    // with setTargetAtTime so switching presets doesn't click or break audio.
+    const presets = {
+      normal: { bass: 0, treble: 0 },
+      bass: { bass: 6, treble: 0 },
+      bright: { bass: 0, treble: 6 },
     }
+    const target = presets[eqPreset] || presets.normal
+    const now = ctx.currentTime
+    bass.gain.setTargetAtTime(target.bass, now, 0.03)
+    treble.gain.setTargetAtTime(target.treble, now, 0.03)
   }, [eqPreset])
 
   useEffect(() => { ensureAudioGraph() }, [])
@@ -916,9 +942,16 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-eq-ring-color', eqRingColor) }, [eqRingColor])
   useEffect(() => { safeSetStorage('listenwell-custom-eq', JSON.stringify(customEqGains)) }, [customEqGains])
 
-  // Apply custom equalizer gains to the live filter chain
+  // Apply custom equalizer gains to the live filter chain (smoothly, to avoid
+  // clicks/zipper noise when dragging a band)
   useEffect(() => {
-    eqFiltersRef.current.forEach((f, i) => { f.gain.value = customEqGains[i] ?? 0 })
+    const ctx = audioContextRef.current
+    const now = ctx?.currentTime ?? 0
+    eqFiltersRef.current.forEach((f, i) => {
+      const g = Math.max(-12, Math.min(12, customEqGains[i] ?? 0))
+      if (ctx) f.gain.setTargetAtTime(g, now, 0.03)
+      else f.gain.value = g
+    })
   }, [customEqGains])
   useEffect(() => { safeSetStorage('listenwell-settings-position', JSON.stringify(settingsPosition)) }, [settingsPosition])
   useEffect(() => { safeSetStorage('listenwell-presets', JSON.stringify(savedPresets)) }, [savedPresets])
@@ -926,6 +959,9 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-glow-softness', String(glowSoftness)) }, [glowSoftness])
   useEffect(() => { safeSetStorage('listenwell-blur-amount', String(blurAmount)) }, [blurAmount])
   useEffect(() => { safeSetStorage('listenwell-repeat', repeat) }, [repeat])
+  useEffect(() => { safeSetStorage('listenwell-volume', String(volume)) }, [volume])
+  useEffect(() => { safeSetStorage('listenwell-rate', String(playbackRate)) }, [playbackRate])
+  useEffect(() => { safeSetStorage('listenwell-eqpreset', eqPreset) }, [eqPreset])
   useEffect(() => { safeSetStorage('listenwell-loved', JSON.stringify(lovedSongIds)) }, [lovedSongIds])
   useEffect(() => { safeSetStorage('listenwell-playlists', JSON.stringify(playlists)) }, [playlists])
   useEffect(() => { safeSetStorage('listenwell-playcounts', JSON.stringify(playCounts)) }, [playCounts])
@@ -960,6 +996,9 @@ function App() {
     profilePicUrl,
     displayName,
     songTileSize,
+    volume,
+    playbackRate,
+    eqPreset,
   })
 
   useEffect(() => {
@@ -999,6 +1038,9 @@ function App() {
         if (typeof d.profilePicUrl === 'string' || d.profilePicUrl === null) setProfilePicUrl(d.profilePicUrl)
         if (typeof d.displayName === 'string') setDisplayName(d.displayName)
         if (typeof d.songTileSize === 'string') setSongTileSize(d.songTileSize)
+        if (typeof d.volume === 'number') setVolume(Math.min(1, Math.max(0, d.volume)))
+        if (typeof d.playbackRate === 'number') setPlaybackRate(clampPlaybackRate(d.playbackRate))
+        if (typeof d.eqPreset === 'string') setEqPreset(d.eqPreset)
       } else {
         // First login from this account: migrate this browser's local state up
         const { error: pushError } = await supabase
@@ -1025,7 +1067,7 @@ function App() {
     }, 1200)
     return () => window.clearTimeout(userStateTimerRef.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize])
+  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize, volume, playbackRate, eqPreset])
 
   // Apply per-song gain normalisation whenever the track changes
   useEffect(() => {
@@ -1260,12 +1302,10 @@ function App() {
       }
     }
 
-    const draw = () => {
-      frameId = requestAnimationFrame(draw)
+    const renderOnce = () => {
       const analyser = analyserRef.current
       let data = null
-      if (analyser) {
-        // Reuse one buffer instead of allocating every frame
+      if (analyser && isPlaying) {
         if (!freqBuf || freqBuf.length !== analyser.frequencyBinCount) {
           freqBuf = new Uint8Array(analyser.frequencyBinCount)
         }
@@ -1278,9 +1318,18 @@ function App() {
       if (circularEqCanvasRef.current) drawRing(circularEqCanvasRef.current, 40, cachedColor, data)
       if (drawerEqCanvasRef.current) drawRing(drawerEqCanvasRef.current, 56, cachedColor, data)
     }
-    draw()
-    return () => cancelAnimationFrame(frameId)
-  }, [])
+
+    // Only run the per-frame loop when there's something to animate (a track
+    // playing, or the account drawer's larger ring is on screen). Otherwise
+    // draw a single static frame so the ring is visible without burning CPU.
+    if (isPlaying || showAccountDrawer) {
+      const draw = () => { frameId = requestAnimationFrame(draw); renderOnce() }
+      draw()
+    } else {
+      renderOnce()
+    }
+    return () => { if (frameId) cancelAnimationFrame(frameId) }
+  }, [isPlaying, showAccountDrawer])
 
   // Keep stateRef fresh so the keyboard handler always reads current state
   stateRef.current = { isPlaying, currentTrackIndex, songs, shuffle, repeat, songQueue }
@@ -1502,7 +1551,13 @@ function App() {
       <audio
         ref={audioRef}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
-        onLoadedMetadata={() => setDuration(audioRef.current?.duration ?? 0)}
+        onLoadedMetadata={() => {
+          const a = audioRef.current
+          if (!a) return
+          setDuration(a.duration ?? 0)
+          a.preservesPitch = true
+          a.playbackRate = effectivePlaybackRate
+        }}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onEnded={() => {
