@@ -1056,6 +1056,10 @@ function App() {
   }, [nowPlaying?.coverUrl, extractAccentFromCover])
 
   useEffect(() => {
+    // The Neural Equalizer bars only render inside the open Settings panel, so
+    // only animate them while that panel is actually visible. Running this
+    // interval always re-rendered the whole App 8x/second even when idle.
+    if (!showSettings || settingsTab !== 'playback') return undefined
     const id = window.setInterval(() => {
       const base = eqPreset === 'bass' ? 0.68 : eqPreset === 'bright' ? 0.56 : 0.46
       setEqBands((prev) =>
@@ -1066,7 +1070,7 @@ function App() {
       )
     }, 120)
     return () => window.clearInterval(id)
-  }, [eqPreset])
+  }, [eqPreset, showSettings, settingsTab])
 
   const SETTINGS_PANEL_W = 320
   const SETTINGS_PANEL_H = 440
@@ -1157,8 +1161,14 @@ function App() {
   useEffect(() => {
     if (!isPlaying) return undefined
     let frameId = null
-    const tick = () => {
-      if (audioRef.current && !audioRef.current.paused) setCurrentTime(audioRef.current.currentTime)
+    let last = 0
+    const tick = (ts) => {
+      // Throttle to ~10fps: a full App re-render every frame (60fps) while
+      // playing was needless; the seek bar reads smoothly at 100ms steps.
+      if (ts - last >= 100 && audioRef.current && !audioRef.current.paused) {
+        last = ts
+        setCurrentTime(audioRef.current.currentTime)
+      }
       frameId = requestAnimationFrame(tick)
     }
     frameId = requestAnimationFrame(tick)
@@ -1168,6 +1178,9 @@ function App() {
   // Circular equalizer animation around profile spheres (footer + account drawer)
   useEffect(() => {
     let frameId
+    let freqBuf = null
+    let cachedColor = [139, 92, 246]
+    let lastColorAt = 0
 
     const resolveColor = () => {
       const setting = eqRingColorRef.current
@@ -1231,12 +1244,18 @@ function App() {
       const analyser = analyserRef.current
       let data = null
       if (analyser) {
-        data = new Uint8Array(analyser.frequencyBinCount)
-        analyser.getByteFrequencyData(data)
+        // Reuse one buffer instead of allocating every frame
+        if (!freqBuf || freqBuf.length !== analyser.frequencyBinCount) {
+          freqBuf = new Uint8Array(analyser.frequencyBinCount)
+        }
+        analyser.getByteFrequencyData(freqBuf)
+        data = freqBuf
       }
-      const color = resolveColor()
-      if (circularEqCanvasRef.current) drawRing(circularEqCanvasRef.current, 40, color, data)
-      if (drawerEqCanvasRef.current) drawRing(drawerEqCanvasRef.current, 56, color, data)
+      // getComputedStyle forces a style recalc; resolve at ~2/sec, not 60/sec
+      const now = Date.now()
+      if (now - lastColorAt > 500) { cachedColor = resolveColor(); lastColorAt = now }
+      if (circularEqCanvasRef.current) drawRing(circularEqCanvasRef.current, 40, cachedColor, data)
+      if (drawerEqCanvasRef.current) drawRing(drawerEqCanvasRef.current, 56, cachedColor, data)
     }
     draw()
     return () => cancelAnimationFrame(frameId)
