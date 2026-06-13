@@ -326,7 +326,12 @@ function App() {
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+      // Only update when the identity actually changes. Supabase fires this on
+      // every background token refresh with a fresh user object; replacing the
+      // reference each time would re-run the library/state loaders on a ~30s
+      // loop and add auth-lock churn.
+      const next = session?.user ?? null
+      setUser((prev) => (prev?.id === next?.id ? prev : next))
     })
 
     return () => subscription.unsubscribe()
@@ -584,8 +589,11 @@ function App() {
   }, [])
 
   const processAudioFiles = useCallback(async (fileList) => {
-    const { data: { session } } = await supabase.auth.getSession()
-    const currentUser = session?.user
+    // Use the authenticated user from state rather than awaiting
+    // supabase.auth.getSession(): in Chrome that call can block indefinitely
+    // on the auth Web Lock during a token refresh, hanging the whole upload
+    // before any network request fires. The auth gate guarantees `user` here.
+    const currentUser = user
     if (!currentUser) {
       showUploadNotice('error', 'You must be signed in to upload songs.')
       return
@@ -705,7 +713,7 @@ function App() {
         setSongs((prev) => prev.map((s) => s.id === song.id ? { ...s, gainDb, bpm } : s))
       }).catch(() => {})
     }
-  }, [showUploadNotice])
+  }, [showUploadNotice, user])
 
   const handleUpload = (e) => {
     processAudioFiles(e.target.files || [])
