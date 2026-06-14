@@ -246,6 +246,7 @@ function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [settingsModalTab, setSettingsModalTab] = useState('account')
   const [songs, setSongs] = useState([])
+  const [libraryLoading, setLibraryLoading] = useState(false)
   const [selectedSongIndex, setSelectedSongIndex] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -385,44 +386,51 @@ function App() {
     if (!user) return
   
     const loadSongs = async () => {
-      const { data: tracks, error } = await supabase
-        .from('tracks')
-        .select('*')
-        .eq('user_id', user.id)
+      // Surface a loading state so a new device knows its library is on the way
+      // rather than showing an empty page while signed URLs resolve.
+      setLibraryLoading(true)
+      try {
+        const { data: tracks, error } = await supabase
+          .from('tracks')
+          .select('*')
+          .eq('user_id', user.id)
 
-      if (error) {
-        console.error('Failed to load library:', error.message)
-        return
-      }
-      if (!tracks?.length) return
-
-      const audioPaths = tracks.map((t) => t.storage_path)
-      const coverPaths = tracks.map((t) => `${t.storage_path.split('/').slice(0, -1).join('/')}/cover`)
-
-      const [{ data: audioUrls }, { data: coverUrls }] = await Promise.all([
-        supabase.storage.from('audio-files').createSignedUrls(audioPaths, SIGNED_URL_TTL),
-        supabase.storage.from('audio-files').createSignedUrls(coverPaths, SIGNED_URL_TTL),
-      ])
-
-      const meta = songMetaRef.current || {}
-      const songsWithUrls = tracks.map((track, i) => {
-        const m = meta[track.id] || {}
-        return {
-          id: track.id,
-          title: track.title,
-          fileName: track.storage_path.split('/').pop(),
-          artist: track.artist || '',
-          album: track.album || '',
-          url: audioUrls?.[i]?.signedUrl || '',
-          coverUrl: coverUrls?.[i]?.signedUrl || null,
-          description: m.description || '',
-          lyrics: '',
-          gainDb: typeof m.gainDb === 'number' ? m.gainDb : 0,
-          bpm: m.bpm ?? null,
+        if (error) {
+          console.error('Failed to load library:', error.message)
+          return
         }
-      })
+        if (!tracks?.length) return
 
-      setSongs(songsWithUrls)
+        const audioPaths = tracks.map((t) => t.storage_path)
+        const coverPaths = tracks.map((t) => `${t.storage_path.split('/').slice(0, -1).join('/')}/cover`)
+
+        const [{ data: audioUrls }, { data: coverUrls }] = await Promise.all([
+          supabase.storage.from('audio-files').createSignedUrls(audioPaths, SIGNED_URL_TTL),
+          supabase.storage.from('audio-files').createSignedUrls(coverPaths, SIGNED_URL_TTL),
+        ])
+
+        const meta = songMetaRef.current || {}
+        const songsWithUrls = tracks.map((track, i) => {
+          const m = meta[track.id] || {}
+          return {
+            id: track.id,
+            title: track.title,
+            fileName: track.storage_path.split('/').pop(),
+            artist: track.artist || '',
+            album: track.album || '',
+            url: audioUrls?.[i]?.signedUrl || '',
+            coverUrl: coverUrls?.[i]?.signedUrl || null,
+            description: m.description || '',
+            lyrics: '',
+            gainDb: typeof m.gainDb === 'number' ? m.gainDb : 0,
+            bpm: m.bpm ?? null,
+          }
+        })
+
+        setSongs(songsWithUrls)
+      } finally {
+        setLibraryLoading(false)
+      }
     }
 
     loadSongs()
@@ -910,6 +918,10 @@ function App() {
   const handlePlaySongClick = (index) => {
     const audio = audioRef.current
     if (!audio) return
+    // Resume the Web Audio graph within this user gesture. The context is
+    // created suspended on mount; without this the element plays but no sound
+    // reaches the speakers until next/prev (which resumes it) or a refresh.
+    ensureAudioGraph()
     if (currentTrackIndex === index && isPlaying) {
       audio.pause()
       setIsPlaying(false)
@@ -1439,8 +1451,12 @@ function App() {
 
           // Start the crossfade before the track actually ends so the next song
           // overlaps the tail. Skipped for repeat-one and single-track libraries.
+          // Require that at least `cf` of real playback has elapsed: a freshly
+          // loaded streaming track can briefly misreport `duration`, which would
+          // otherwise satisfy the end-of-track test at currentTime 0 and jump
+          // straight into the next song's crossfade.
           if (cf > 0 && !crossfadeArmedRef.current && rep !== 'one' && (ss.length > 1 || rep === 'all')) {
-            if (dur - audio.currentTime <= cf / 1000) {
+            if (audio.currentTime > cf / 1000 && dur - audio.currentTime <= cf / 1000) {
               crossfadeArmedRef.current = true
               handleNextRef.current?.()
             }
@@ -1627,6 +1643,8 @@ function App() {
   const handlePlayPause = () => {
     const audio = audioRef.current
     if (!audio || currentTrackIndex == null) return
+    // Resume the (mount-time suspended) Web Audio graph inside this gesture.
+    ensureAudioGraph()
     if (isPlaying) audio.pause()
     else audio.play().catch(() => {})
     setIsPlaying(!isPlaying)
@@ -1799,6 +1817,15 @@ function App() {
             <div className="w-10 h-10 rounded-full border-2 border-violet-500/30 border-t-violet-400 animate-spin" />
             <p className="text-sm text-gray-200 font-medium">Uploading your music…</p>
             <p className="text-xs text-gray-500">Saving to your library</p>
+          </div>
+        </div>
+      )}
+      {libraryLoading && songs.length === 0 && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#0c0c0e]/70 backdrop-blur-sm" role="status" aria-live="polite">
+          <div className="flex flex-col items-center gap-4 px-8 py-7 rounded-2xl border border-white/10 bg-[#0c0c0e]/90 shadow-2xl">
+            <div className="w-10 h-10 rounded-full border-2 border-violet-500/30 border-t-violet-400 animate-spin" />
+            <p className="text-sm text-gray-200 font-medium">Loading your library…</p>
+            <p className="text-xs text-gray-500">Fetching your music from this account</p>
           </div>
         </div>
       )}
