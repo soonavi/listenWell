@@ -79,6 +79,14 @@ function stableSongId(fileName) {
 }
 
 // Playlist accent colour presets (hex → space-separated RGB for CSS var)
+const THEMES = [
+  { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'sunset', label: 'Sunset' },
+  { id: 'pink', label: 'Pink' }, { id: 'cartoon', label: 'Cartoon' }, { id: 'terminal', label: 'Terminal' },
+  { id: 'paper', label: 'Paper' }, { id: 'blueprint', label: 'Blueprint' }, { id: 'chrome', label: 'Chrome' },
+  { id: 'bubblegum', label: 'Bubblegum' }, { id: 'ocean', label: 'Ocean' }, { id: 'ember', label: 'Ember' },
+  { id: 'moss', label: 'Moss' },
+]
+
 const ACCENT_PRESETS = [
   { hex: '#7c3aed', rgb: '124 58 237', label: 'Violet' },
   { hex: '#2563eb', rgb: '37 99 235',  label: 'Blue' },
@@ -228,6 +236,8 @@ function App() {
   const [isUploading, setIsUploading] = useState(false)
   const [showMetadataModal, setShowMetadataModal] = useState(false)
   const [pendingEditSongId, setPendingEditSongId] = useState(null)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [settingsModalTab, setSettingsModalTab] = useState('account')
   const [songs, setSongs] = useState([])
   const [selectedSongIndex, setSelectedSongIndex] = useState(null)
   const [currentTrackIndex, setCurrentTrackIndex] = useState(null)
@@ -280,7 +290,7 @@ function App() {
   })
   const [showGeneralSettings, setShowGeneralSettings] = useState(false)
   const [audioOutputs, setAudioOutputs] = useState([])
-  const [outputDeviceId, setOutputDeviceId] = useState('default')
+  const [outputDeviceId, setOutputDeviceId] = useState(() => safeGetStorage('listenwell-output', 'default'))
   const [accentColor, setAccentColor] = useState('139 92 246')
   const [shimmer, setShimmer] = useState({ low: 0, mid: 0, high: 0 })
   const [settingsPosition, setSettingsPosition] = useState(() => {
@@ -938,6 +948,23 @@ function App() {
 
   useEffect(() => { ensureAudioGraph() }, [])
 
+  // Enumerate audio output devices when the settings audio tab is open
+  useEffect(() => {
+    if (!showSettingsModal || settingsModalTab !== 'audio') return
+    if (!navigator.mediaDevices?.enumerateDevices) return
+    navigator.mediaDevices.enumerateDevices()
+      .then((devs) => setAudioOutputs(devs.filter((d) => d.kind === 'audiooutput')))
+      .catch(() => {})
+  }, [showSettingsModal, settingsModalTab])
+
+  // Route audio to the chosen output device (where supported)
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || typeof audio.setSinkId !== 'function') return
+    audio.setSinkId(outputDeviceId).catch(() => {})
+    safeSetStorage('listenwell-output', outputDeviceId)
+  }, [outputDeviceId, currentTrackUrl])
+
   useEffect(() => { safeSetStorage('listenwell-theme', theme) }, [theme])
   useEffect(() => { safeSetStorage('listenwell-eq-ring-color', eqRingColor) }, [eqRingColor])
   useEffect(() => { safeSetStorage('listenwell-custom-eq', JSON.stringify(customEqGains)) }, [customEqGains])
@@ -1575,14 +1602,15 @@ function App() {
 
       {/* Header */}
       <header className="app-chrome relative z-20 shrink-0 h-16 sm:h-20 border-b border-white/10 flex items-center justify-end px-4 sm:px-8">
-        {/* Now Playing indicator — top left (hidden on mobile so it can't
-            overlap the Home button; the footer shows the track there instead) */}
-        <div className="absolute left-4 sm:left-8 hidden sm:flex items-center gap-2 min-w-0 max-w-[260px] sm:max-w-[340px]">
+        {/* Now Playing indicator — top left. Capped well short of the Home
+            button on mobile and truncated with an ellipsis so it never
+            overlaps it. */}
+        <div className="absolute left-4 sm:left-8 flex items-center gap-2 min-w-0 max-w-[40vw] sm:max-w-[340px]">
           {nowPlaying ? (
             <>
               <span className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_6px_2px_rgba(74,222,128,0.55)] animate-pulse shrink-0" />
               <span className="text-[11px] sm:text-xs text-gray-400 truncate">
-                <span className="text-gray-500">Now Playing: </span>
+                <span className="text-gray-500 hidden sm:inline">Now Playing: </span>
                 <span className="text-gray-200">{nowPlaying.artist || 'Unknown'}</span>
                 <span className="text-gray-500"> — </span>
                 <span className="text-gray-200">{nowPlaying.title || nowPlaying.fileName}</span>
@@ -1591,7 +1619,7 @@ function App() {
           ) : (
             <>
               <span className="w-2 h-2 rounded-full bg-gray-700 shrink-0" />
-              <span className="text-[11px] sm:text-xs text-gray-600">Now Playing: —</span>
+              <span className="text-[11px] sm:text-xs text-gray-600 truncate">Now Playing: —</span>
             </>
           )}
         </div>
@@ -1649,6 +1677,14 @@ function App() {
                 transition={{ duration: 0.15, ease: 'easeOut' }}
                 className="menu-panel absolute right-0 top-[calc(100%+0.5rem)] min-w-[290px] rounded-2xl border border-white/15 backdrop-blur-2xl p-2 flex flex-col gap-0.5 z-30"
               >
+                <button
+                  type="button"
+                  onClick={() => { setSettingsModalTab('account'); setShowSettingsModal(true); setShowLogoMenu(false) }}
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left whitespace-nowrap"
+                >
+                  <Settings2 className="w-5 h-5 shrink-0 text-white/80" />
+                  <span>Settings</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => { setShowAccountDrawer(true); setShowLogoMenu(false) }}
@@ -2150,7 +2186,7 @@ function App() {
               <div className="flex flex-col gap-1.5">
                 <span className="font-medium">Scene theme</span>
                 <div className="grid grid-cols-3 gap-2">
-                  {[{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'sunset', label: 'Sunset' }, { id: 'pink', label: 'Pink' }, { id: 'cartoon', label: 'Cartoon' }, { id: 'terminal', label: 'Terminal' }, { id: 'paper', label: 'Paper' }, { id: 'blueprint', label: 'Blueprint' }, { id: 'chrome', label: 'Chrome' }, { id: 'bubblegum', label: 'Bubblegum' }, { id: 'ocean', label: 'Ocean' }, { id: 'ember', label: 'Ember' }, { id: 'moss', label: 'Moss' }].map((scene) => (
+                  {THEMES.map((scene) => (
                     <button
                       key={scene.id}
                       type="button"
@@ -2783,6 +2819,164 @@ function App() {
             onToggleRepeat={handleToggleRepeat}
             onToggleLoved={toggleLovedSong}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Settings modal — opened from the top-right dropdown */}
+      <AnimatePresence>
+        {showSettingsModal && (
+          <motion.div
+            className="fixed inset-0 z-[160] flex items-end sm:items-center justify-center p-0 sm:p-4"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}
+          >
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowSettingsModal(false)} />
+            <motion.div
+              className="relative z-10 w-full sm:max-w-lg max-h-[92vh] flex flex-col rounded-t-2xl sm:rounded-2xl border border-white/12 bg-[#0f0e14] shadow-2xl glass-card overflow-hidden"
+              initial={{ y: 40, opacity: 0, scale: 0.98 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 40, opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
+                <h2 className="section-title text-sm text-white">Settings</h2>
+                <button type="button" onClick={() => setShowSettingsModal(false)} className="text-xs text-gray-400 hover:text-white transition-colors px-2 py-1">Done</button>
+              </div>
+
+              <div className="flex gap-1 px-3 pt-3 shrink-0">
+                {['account', 'audio', 'appearance'].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setSettingsModalTab(t)}
+                    className={`flex-1 capitalize py-2 rounded-lg text-xs font-medium border transition-colors ${settingsModalTab === t ? 'bg-violet-500/15 text-violet-100 border-violet-500/40' : 'text-gray-400 hover:text-gray-200 border-transparent'}`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5 text-sm text-gray-300">
+                {settingsModalTab === 'account' && (
+                  <>
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-full overflow-hidden bg-white/[0.06] flex items-center justify-center shrink-0 border border-white/10">
+                        {profilePicUrl ? <img src={profilePicUrl} alt="" className="w-full h-full object-cover" /> : <UserCircle2 className="w-9 h-9 text-gray-500" />}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer text-violet-300 hover:text-violet-200 text-xs font-medium">
+                          <ImagePlus className="w-3.5 h-3.5" /> Change photo
+                          <input type="file" accept="image/*" className="hidden" onChange={handleProfilePicUpload} />
+                        </label>
+                        {profilePicUrl && (
+                          <button type="button" onClick={() => { setProfilePicUrl(null); safeSetStorage('listenwell-profile-pic', null) }} className="text-[11px] text-red-400/70 hover:text-red-400 text-left transition-colors">Remove photo</button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-gray-500 font-medium">Display name</label>
+                      <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-gray-500 font-medium">Email</label>
+                      <div className="bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-gray-400 truncate">{user?.email || '—'}</div>
+                    </div>
+                    <button type="button" onClick={() => supabase.auth.signOut()} className="w-full text-center rounded-lg border border-red-500/40 text-red-300 hover:bg-red-500/10 py-2.5 text-sm font-medium transition-colors mt-1">Sign out</button>
+                  </>
+                )}
+
+                {settingsModalTab === 'audio' && (
+                  <>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-gray-500 font-medium">Audio output</span>
+                      {typeof window !== 'undefined' && audioRef.current && typeof audioRef.current.setSinkId === 'function' ? (
+                        <select
+                          value={outputDeviceId}
+                          onChange={(e) => setOutputDeviceId(e.target.value)}
+                          className="bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/50"
+                        >
+                          <option value="default">System default</option>
+                          {audioOutputs.filter((d) => d.deviceId && d.deviceId !== 'default').map((d, i) => (
+                            <option key={d.deviceId} value={d.deviceId}>{d.label || `Output ${i + 1}`}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="text-xs text-gray-600">Output selection isn&apos;t supported in this browser.</p>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-gray-500 font-medium">Equalizer preset</span>
+                      <div className="flex gap-2">
+                        {[{ id: 'normal', label: 'Normal' }, { id: 'bass', label: 'Bass boost' }, { id: 'bright', label: 'Bright' }].map((p) => (
+                          <button key={p.id} type="button" onClick={() => setEqPreset(p.id)} className={`flex-1 py-1.5 rounded-full border text-[11px] transition-colors ${eqPreset === p.id ? 'border-violet-500/70 bg-violet-500/15 text-white' : 'border-white/10 text-gray-400 hover:border-white/30'}`}>{p.label}</button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs text-gray-500 font-medium">Custom equalizer</span>
+                      <div className="flex flex-col gap-2.5">
+                        {EQ_BANDS.map((band, i) => (
+                          <div key={band.freq} className="flex items-center gap-3">
+                            <span className="w-9 text-[10px] text-gray-500 tabular-nums shrink-0">{band.label}</span>
+                            <input
+                              type="range" min={-12} max={12} step={1}
+                              value={customEqGains[i] ?? 0}
+                              onChange={(e) => { const v = Number(e.target.value); setCustomEqGains((prev) => prev.map((g, idx) => idx === i ? v : g)) }}
+                              className="flex-1 h-1.5 rounded-full appearance-none bg-white/15 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:cursor-pointer"
+                            />
+                            <span className="w-9 text-[10px] text-gray-400 tabular-nums text-right shrink-0">{(customEqGains[i] ?? 0) > 0 ? '+' : ''}{customEqGains[i] ?? 0}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => setCustomEqGains(EQ_BANDS.map(() => 0))} className="self-start text-[11px] text-gray-500 hover:text-gray-300 transition-colors">Reset bands</button>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-300 font-medium">Volume normalisation</span>
+                      <button type="button" role="switch" aria-checked={volumeNormalization} aria-label="Volume normalisation" onClick={() => setVolumeNormalization((p) => !p)} className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${volumeNormalization ? 'bg-violet-600' : 'bg-white/20'}`}>
+                        <span className={`absolute left-0 top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${volumeNormalization ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex justify-between items-center"><span className="text-xs text-gray-300 font-medium">Crossfade</span><span className="text-xs text-cyan-300 tabular-nums">{crossfadeDuration === 0 ? 'Off' : `${crossfadeDuration}ms`}</span></div>
+                      <input type="range" min={0} max={2000} step={50} value={crossfadeDuration} onChange={(e) => setCrossfadeDuration(Number(e.target.value))} className="w-full h-1.5 rounded-full appearance-none bg-white/15 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer" />
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex justify-between items-center"><span className="text-xs text-gray-300 font-medium">Playback speed</span><span className="text-xs text-violet-300 tabular-nums">{effectivePlaybackRate.toFixed(2)}×</span></div>
+                      <input type="range" min={0.25} max={3} step={0.05} value={effectivePlaybackRate} onChange={(e) => setPlaybackRate(Number(e.target.value))} className="w-full h-1.5 rounded-full appearance-none bg-white/15 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer" />
+                      <button type="button" onClick={() => setPlaybackRate(1)} className="self-start text-[11px] text-gray-500 hover:text-gray-300 transition-colors">Reset to 1×</button>
+                    </div>
+                  </>
+                )}
+
+                {settingsModalTab === 'appearance' && (
+                  <>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-gray-500 font-medium">Theme</span>
+                      <div className="grid grid-cols-3 gap-2">
+                        {THEMES.map((scene) => (
+                          <button key={scene.id} type="button" onClick={() => setTheme(normalizeThemeId(scene.id))} className={`rounded-lg border px-2 py-1.5 text-[11px] text-center transition-colors ${theme === scene.id ? 'border-violet-500/60 bg-violet-500/10 text-violet-100' : 'border-white/10 hover:border-white/40 text-gray-300'}`}>{scene.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex justify-between"><span className="text-xs text-gray-300 font-medium">Aurora intensity</span><span className="text-xs text-gray-500 tabular-nums">{Math.round(auroraIntensity * 100)}%</span></div>
+                      <input type="range" min={0} max={1} step={0.05} value={auroraIntensity} onChange={(e) => setAuroraIntensity(Number(e.target.value))} className="w-full h-1.5 rounded-full appearance-none bg-white/15 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex justify-between"><span className="text-xs text-gray-300 font-medium">Glow softness</span><span className="text-xs text-gray-500 tabular-nums">{Math.round(glowSoftness * 100)}%</span></div>
+                      <input type="range" min={0} max={1} step={0.05} value={glowSoftness} onChange={(e) => setGlowSoftness(Number(e.target.value))} className="w-full h-1.5 rounded-full appearance-none bg-white/15 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex justify-between"><span className="text-xs text-gray-300 font-medium">Blur amount</span><span className="text-xs text-gray-500 tabular-nums">{Math.round(blurAmount * 100)}%</span></div>
+                      <input type="range" min={0} max={1} step={0.05} value={blurAmount} onChange={(e) => setBlurAmount(Number(e.target.value))} className="w-full h-1.5 rounded-full appearance-none bg-white/15 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer" />
+                    </div>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 

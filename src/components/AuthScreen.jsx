@@ -203,6 +203,13 @@ export default function AuthScreen({ onAuth }) {
         </form>
       </div>
 
+      {/* Ownership notice */}
+      <div className="relative w-full max-w-md rounded-[10px] border border-violet-500/25 bg-violet-500/[0.06] px-4 py-3 text-center">
+        <p className="text-xs leading-relaxed text-gray-300">
+          ListenWell is for music you <span className="font-semibold text-violet-200">own</span>. Upload only files you have the right to use. This is a personal library for your own collection, not a tool for piracy or sharing copyrighted music.
+        </p>
+      </div>
+
       {/* Why dropdown — outside and below the card */}
       <div className="relative w-full max-w-md rounded-[10px] border border-white/10 bg-white/[0.02] overflow-hidden">
         <button

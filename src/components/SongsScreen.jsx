@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
-import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square } from 'lucide-react'
+import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square, MoreVertical } from 'lucide-react'
 import { GooeyInput } from '@/components/ui/gooey-input'
 
 function SongsScreen({
@@ -301,14 +301,23 @@ function SongsScreen({
                     </div>
                   </div>
                   <p className="text-sm font-medium truncate text-white/95">{song.title || song.fileName}</p>
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-gray-500 truncate">{song.artist || 'Unknown artist'}</p>
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="text-xs text-gray-500 truncate flex-1">{song.artist || 'Unknown artist'}</p>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onToggleLoved(song.id) }}
                       className={`inline-flex shrink-0 p-0.5 ${lovedSongIds.includes(song.id) ? 'text-pink-400' : 'text-gray-600 hover:text-gray-400'}`}
+                      aria-label={lovedSongIds.includes(song.id) ? 'Unlove' : 'Love'}
                     >
                       <Heart className="w-5 h-5" fill={lovedSongIds.includes(song.id) ? 'currentColor' : 'none'} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => openContextMenu(e, song, i)}
+                      className="inline-flex shrink-0 p-0.5 text-gray-500 hover:text-white transition-colors"
+                      aria-label="Song options"
+                    >
+                      <MoreVertical className="w-5 h-5" />
                     </button>
                   </div>
                 </motion.div>
