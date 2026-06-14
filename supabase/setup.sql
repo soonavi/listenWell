@@ -63,6 +63,33 @@ create policy "Users can delete own tracks"
 -- was created some other way.
 grant select, insert, update, delete on public.tracks to authenticated;
 
+-- Per-account upload cap, enforced in the database so it can't be bypassed by
+-- calling the API directly (the client also checks this for a friendly error).
+-- Change `max_uploads` here when you revise the limit.
+create or replace function public.enforce_track_upload_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  track_count integer;
+  max_uploads constant integer := 50;
+begin
+  select count(*) into track_count from public.tracks where user_id = new.user_id;
+  if track_count >= max_uploads then
+    raise exception 'Upload limit reached: a maximum of % songs are allowed per account.', max_uploads
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_track_upload_limit on public.tracks;
+create trigger enforce_track_upload_limit
+  before insert on public.tracks
+  for each row execute function public.enforce_track_upload_limit();
+
 -- 2. Per-user synced state (playlists, loved songs, settings) -----------------
 -- One JSONB row per user; the client loads it on login and writes it
 -- (debounced) whenever any synced value changes.

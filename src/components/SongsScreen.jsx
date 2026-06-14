@@ -94,12 +94,22 @@ function SongsScreen({
       setViewportWidth(viewport.clientWidth || 0)
     }
     measure()
-    const onScroll = () => setScrollTop(viewport.scrollTop)
-    viewport.addEventListener('scroll', onScroll)
+    // Coalesce scroll events to one state update per frame so fast scrolling
+    // doesn't fire a render per wheel tick.
+    let scrollRaf = null
+    const onScroll = () => {
+      if (scrollRaf) return
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = null
+        setScrollTop(viewport.scrollTop)
+      })
+    }
+    viewport.addEventListener('scroll', onScroll, { passive: true })
     const resizeObserver = new ResizeObserver(measure)
     resizeObserver.observe(viewport)
     window.addEventListener('resize', measure)
     return () => {
+      if (scrollRaf) cancelAnimationFrame(scrollRaf)
       viewport.removeEventListener('scroll', onScroll)
       resizeObserver.disconnect()
       window.removeEventListener('resize', measure)
@@ -111,7 +121,13 @@ function SongsScreen({
   const baseColumns = viewportWidth >= 1024 ? 5 : viewportWidth >= 768 ? 4 : viewportWidth >= 640 ? 3 : 2
   const virtualColumns = tileSize === 'small' ? baseColumns + 1 : tileSize === 'large' ? Math.max(1, baseColumns - 1) : baseColumns
   const virtualGap = viewportWidth >= 640 ? 20 : 16
-  const colWidth = viewportWidth > 0 ? (viewportWidth - virtualGap * (virtualColumns - 1)) / virtualColumns : 220
+  // Inner padding on the scroll viewport so hover-scaled tiles and selection
+  // rings have room and aren't clipped at the edges. `viewportWidth` is the
+  // viewport's clientWidth (includes this padding), so subtract it back out
+  // before sizing columns.
+  const GRID_PAD = 12
+  const innerWidth = Math.max(0, viewportWidth - GRID_PAD * 2)
+  const colWidth = innerWidth > 0 ? (innerWidth - virtualGap * (virtualColumns - 1)) / virtualColumns : 220
   const rowHeight = Math.round(colWidth + 60 + virtualGap)
   const virtualItems = useMemo(() => [...visibleSongs, { id: '__upload__', uploadTile: true }], [visibleSongs])
   const rowCount = Math.ceil(virtualItems.length / virtualColumns)
@@ -234,7 +250,7 @@ function SongsScreen({
           </div>
         ) : (
           <div
-            className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm pl-6 sm:pl-8 pr-3 sm:pr-4 py-3 sm:py-4 glass-card parallax-card song-grid-shell relative overflow-hidden"
+            className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm px-3 sm:px-4 py-3 sm:py-4 glass-card parallax-card song-grid-shell relative overflow-hidden"
             onMouseMove={(e) => {
               const rect = e.currentTarget.getBoundingClientRect()
               setBgMouse({ x: (e.clientX - rect.left) / rect.width * 100, y: (e.clientY - rect.top) / rect.height * 100 })
@@ -256,7 +272,7 @@ function SongsScreen({
                 }}
               />
             )}
-            <div ref={gridViewportRef} className="h-full overflow-y-auto relative z-[1]">
+            <div ref={gridViewportRef} className="h-full overflow-y-auto relative z-[1] px-3 pt-3 pb-3">
               <div style={{ paddingTop: `${paddingTop}px`, paddingBottom: `${paddingBottom}px` }}>
                 <div className="grid" style={{ gridTemplateColumns: `repeat(${virtualColumns}, minmax(0, 1fr))`, gap: `${virtualGap}px` }}>
               {renderedItems.map((song) => {

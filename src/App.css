@@ -1282,3 +1282,57 @@ select.song-toolbar-select:focus-visible {
     height: 18px;
   }
 }
+
+/* ===== Graphic equalizer faders ===== */
+/* A horizontal range rotated -90deg gives a reliable cross-browser vertical
+   fader (up = louder). The wrapper reserves the vertical travel; the input is
+   absolutely centered and rotated within it. */
+.eq-fader-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.eq-fader {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  height: 5px;
+  border-radius: 999px;
+  transform: rotate(-90deg);
+  background: linear-gradient(
+    90deg,
+    rgba(34, 211, 238, 0.45),
+    rgba(139, 92, 246, 0.45)
+  );
+  outline: none;
+  cursor: ns-resize;
+}
+
+.eq-fader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 24px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #ffffff, #d7d4e2);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.45), 0 0 0 1px rgba(139, 92, 246, 0.35);
+  cursor: ns-resize;
+}
+
+.eq-fader::-moz-range-thumb {
+  width: 12px;
+  height: 24px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #ffffff, #d7d4e2);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.45), 0 0 0 1px rgba(139, 92, 246, 0.35);
+  cursor: ns-resize;
+}
+
+.eq-fader:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.45), 0 0 0 2px rgba(139, 92, 246, 0.8);
+}

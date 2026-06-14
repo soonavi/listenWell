@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { ChevronDown, Eye, EyeOff } from 'lucide-react'
+// eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
+import LegalModal from './LegalModal'
 
 function onParallaxMove(e) {
   const rect = e.currentTarget.getBoundingClientRect()
@@ -31,6 +33,7 @@ export default function AuthScreen({ onAuth }) {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState(null)
   const [showWhy, setShowWhy] = useState(false)
+  const [legalTab, setLegalTab] = useState(null) // null | 'privacy' | 'terms'
 
   const switchMode = (key) => {
     setMode(key)
@@ -200,6 +203,13 @@ export default function AuthScreen({ onAuth }) {
               ? (mode === 'login' ? 'Logging in…' : 'Creating account…')
               : (mode === 'login' ? 'Log in' : 'Create account')}
           </button>
+
+          <p className="text-xs text-center text-gray-500 leading-relaxed">
+            By {mode === 'login' ? 'using ListenWell' : 'creating an account'}, you agree to our{' '}
+            <button type="button" onClick={() => setLegalTab('terms')} className="text-violet-300 hover:text-violet-200 underline underline-offset-2">Terms &amp; Conditions</button>
+            {' '}and{' '}
+            <button type="button" onClick={() => setLegalTab('privacy')} className="text-violet-300 hover:text-violet-200 underline underline-offset-2">Privacy Policy</button>.
+          </p>
         </form>
       </div>
 
@@ -246,6 +256,8 @@ export default function AuthScreen({ onAuth }) {
           )}
         </AnimatePresence>
       </div>
+
+      <LegalModal open={legalTab !== null} initialTab={legalTab || 'privacy'} onClose={() => setLegalTab(null)} />
     </div>
   )
 }
