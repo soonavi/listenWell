@@ -11,6 +11,8 @@ import NowPlayingOverlay from './components/NowPlayingOverlay'
 import UpNextPanel from './components/UpNextPanel'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
 import AuthScreen from './components/AuthScreen'
+import LegalModal from './components/LegalModal'
+import Equalizer from './components/Equalizer'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -39,6 +41,8 @@ import {
   SlidersVertical,
   Speaker,
   LayoutGrid,
+  Shield,
+  ScrollText,
 } from 'lucide-react'
 
 // Custom equalizer bands (Hz). First band is a low shelf, last a high shelf.
@@ -228,6 +232,9 @@ async function readAudioTags(file) {
 // Signed URLs must outlive a listening session — 7 days
 const SIGNED_URL_TTL = 60 * 60 * 24 * 7
 
+// Per-account upload cap. Temporary while limits/monetization are decided.
+const MAX_UPLOADS = 50
+
 function App() {
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -292,7 +299,10 @@ function App() {
   const [audioOutputs, setAudioOutputs] = useState([])
   const [outputDeviceId, setOutputDeviceId] = useState(() => safeGetStorage('listenwell-output', 'default'))
   const [accentColor, setAccentColor] = useState('139 92 246')
-  const [shimmer, setShimmer] = useState({ low: 0, mid: 0, high: 0 })
+  // Shimmer is written straight to the root element's CSS vars from the
+  // visualizer's rAF loop. Keeping it out of React state avoids a full App
+  // re-render on every animation frame (~60fps) while a track plays.
+  const rootRef = useRef(null)
   const [settingsPosition, setSettingsPosition] = useState(() => {
     const parsed = parseStoredJSON('listenwell-settings-position', { x: 0, y: 0 })
     const x = Number(parsed?.x)
@@ -303,9 +313,10 @@ function App() {
   const [eqBands, setEqBands] = useState(Array.from({ length: 12 }, () => 0.3))
   const [showAccountDrawer, setShowAccountDrawer] = useState(false)
   const [showLogoMenu, setShowLogoMenu] = useState(false)
-  const [songsBgUrl, setSongsBgUrl] = useState(null)
-  const [songsBgBlur, setSongsBgBlur] = useState(8)
+  const [songsBgUrl, setSongsBgUrl] = useState(() => safeGetStorage('listenwell-songs-bg', null))
+  const [songsBgBlur, setSongsBgBlur] = useState(() => Number(safeGetStorage('listenwell-songs-bg-blur', '8')))
   const [showAboutModal, setShowAboutModal] = useState(false)
+  const [legalTab, setLegalTab] = useState(null) // null | 'privacy' | 'terms'
   const [aboutModalPos, setAboutModalPos] = useState({ x: 0, y: 0 })
   const [isDraggingAbout, setIsDraggingAbout] = useState(false)
   const aboutModalRef = useRef(null)
@@ -337,6 +348,19 @@ function App() {
   const eqRingColorRef = useRef('accent')
   const eqFiltersRef = useRef([])
   const customEqGainsRef = useRef(null)
+  // Crossfade: a dedicated gain node fades the new track IN on the main
+  // element, while a secondary <audio> plays the outgoing tail and fades OUT.
+  const crossfadeAudioRef = useRef(null)
+  const fadeGainRef = useRef(null)
+  const crossfadeArmedRef = useRef(false)
+  const handleNextRef = useRef(null)
+  // A play counts only once it passes the halfway mark; reset each new play.
+  const hasCountedRef = useRef(false)
+  // Per-song fields not stored in the tracks table (description, gainDb, bpm),
+  // persisted in user_state/localStorage so they survive a refresh.
+  const [songMeta, setSongMeta] = useState(() => parseStoredJSON('listenwell-songmeta', {}))
+  const songMetaRef = useRef(songMeta)
+  songMetaRef.current = songMeta
 
   // Auth effect — check session on mount and listen for changes
   useEffect(() => {
@@ -380,19 +404,23 @@ function App() {
         supabase.storage.from('audio-files').createSignedUrls(coverPaths, SIGNED_URL_TTL),
       ])
 
-      const songsWithUrls = tracks.map((track, i) => ({
-        id: track.id,
-        title: track.title,
-        fileName: track.storage_path.split('/').pop(),
-        artist: track.artist || '',
-        album: track.album || '',
-        url: audioUrls?.[i]?.signedUrl || '',
-        coverUrl: coverUrls?.[i]?.signedUrl || null,
-        description: '',
-        lyrics: '',
-        gainDb: 0,
-        bpm: null,
-      }))
+      const meta = songMetaRef.current || {}
+      const songsWithUrls = tracks.map((track, i) => {
+        const m = meta[track.id] || {}
+        return {
+          id: track.id,
+          title: track.title,
+          fileName: track.storage_path.split('/').pop(),
+          artist: track.artist || '',
+          album: track.album || '',
+          url: audioUrls?.[i]?.signedUrl || '',
+          coverUrl: coverUrls?.[i]?.signedUrl || null,
+          description: m.description || '',
+          lyrics: '',
+          gainDb: typeof m.gainDb === 'number' ? m.gainDb : 0,
+          bpm: m.bpm ?? null,
+        }
+      })
 
       setSongs(songsWithUrls)
     }
@@ -405,6 +433,13 @@ function App() {
     setListeningHistory((prev) =>
       [{ id: song.id, title: song.title || song.fileName || 'Untitled' }, ...prev].slice(0, 100),
     )
+  }, [])
+
+  // Persist per-song fields the tracks table doesn't hold (description, gainDb,
+  // bpm) so they survive a refresh and sync across devices.
+  const persistSongMeta = useCallback((id, patch) => {
+    if (!id) return
+    setSongMeta((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }))
   }, [])
 
   const markRecent = (type, id) => {
@@ -427,6 +462,8 @@ function App() {
     if (!sourceNodeRef.current) {
       const source = ctx.createMediaElementSource(audioEl)
       const gain = ctx.createGain()
+      const fade = ctx.createGain()
+      fade.gain.value = 1
       const bass = ctx.createBiquadFilter()
       const treble = ctx.createBiquadFilter()
       const analyser = ctx.createAnalyser()
@@ -445,7 +482,8 @@ function App() {
         return f
       })
       source.connect(gain)
-      gain.connect(bass)
+      gain.connect(fade)
+      fade.connect(bass)
       bass.connect(treble)
       let prev = treble
       for (const f of eqFilters) {
@@ -456,6 +494,7 @@ function App() {
       analyser.connect(ctx.destination)
       sourceNodeRef.current = source
       gainNodeRef.current = gain
+      fadeGainRef.current = fade
       bassFilterRef.current = bass
       trebleFilterRef.current = treble
       eqFiltersRef.current = eqFilters
@@ -473,8 +512,14 @@ function App() {
     if (!ctx) return
     const dpr = window.devicePixelRatio || 1
     const rect = canvas.getBoundingClientRect()
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
+    // Resizing a canvas clears and reallocates its backing store, so only do it
+    // when the element actually changed size rather than every frame.
+    const pxW = Math.round(rect.width * dpr)
+    const pxH = Math.round(rect.height * dpr)
+    if (canvas.width !== pxW || canvas.height !== pxH) {
+      canvas.width = pxW
+      canvas.height = pxH
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     analyser.getByteFrequencyData(data)
     ctx.clearRect(0, 0, rect.width, rect.height)
@@ -500,7 +545,12 @@ function App() {
       else highSum += normalized
     }
     const bandSize = bars / 3
-    setShimmer({ low: lowSum / bandSize, mid: midSum / bandSize, high: highSum / bandSize })
+    const root = rootRef.current
+    if (root) {
+      root.style.setProperty('--shimmer-low', String(lowSum / bandSize))
+      root.style.setProperty('--shimmer-mid', String(midSum / bandSize))
+      root.style.setProperty('--shimmer-high', String(highSum / bandSize))
+    }
     visualizerFrameRef.current = requestAnimationFrame(runVisualizerFrame)
   }, [])
 
@@ -521,24 +571,69 @@ function App() {
     event.currentTarget.style.setProperty('--my', '50%')
   }
 
-  // Crossfade out before switching tracks — duration controlled by crossfadeDuration setting
-  const crossfade = useCallback((callback) => {
+  // Set the fade-gain node (which scales the main element's output) to a value,
+  // optionally ramping over `ms`. Falls back to no-op until the graph exists.
+  const setFadeGain = useCallback((to, ms = 0) => {
+    const ctx = audioContextRef.current
+    const fg = fadeGainRef.current
+    if (!fg) return
+    if (ctx) {
+      const now = ctx.currentTime
+      fg.gain.cancelScheduledValues(now)
+      fg.gain.setValueAtTime(Math.max(0.0001, fg.gain.value), now)
+      if (ms > 0) fg.gain.linearRampToValueAtTime(Math.max(0.0001, to), now + ms / 1000)
+      else fg.gain.setValueAtTime(to, now)
+    } else {
+      fg.gain.value = to
+    }
+  }, [])
+
+  // True crossfade: play the outgoing track's tail on a secondary element and
+  // fade it out, while `switchTrack` advances the main element to the next song
+  // and we fade that in via the fade-gain node. When disabled or not currently
+  // audible, just switch instantly.
+  const crossfade = useCallback((switchTrack) => {
     const audio = audioRef.current
-    if (!audio || audio.paused || crossfadeDuration === 0) { callback(); return }
-    const steps = Math.max(4, Math.round(crossfadeDuration / 25))
-    const intervalMs = crossfadeDuration / steps
-    let step = 0
-    const startVol = audio.volume
-    const id = setInterval(() => {
-      step++
-      audio.volume = Math.max(0, startVol * (1 - step / steps))
-      if (step >= steps) {
-        clearInterval(id)
-        audio.volume = startVol
-        callback()
-      }
-    }, intervalMs)
-  }, [crossfadeDuration])
+    const dur = crossfadeDuration
+    if (!audio || dur === 0 || audio.paused) {
+      setFadeGain(1, 0)
+      switchTrack()
+      return
+    }
+    ensureAudioGraph()
+
+    // Hand the outgoing track to the secondary element and fade it out.
+    const tail = crossfadeAudioRef.current
+    const outSrc = audio.currentSrc || audio.src
+    if (tail && outSrc) {
+      try {
+        tail.src = outSrc
+        tail.currentTime = audio.currentTime
+        tail.playbackRate = audio.playbackRate
+        tail.volume = audio.volume
+        tail.play().then(() => {
+          const steps = Math.max(4, Math.round(dur / 25))
+          let step = 0
+          const startVol = tail.volume
+          const id = setInterval(() => {
+            step++
+            tail.volume = Math.max(0, startVol * (1 - step / steps))
+            if (step >= steps) {
+              clearInterval(id)
+              tail.pause()
+              tail.removeAttribute('src')
+              tail.load()
+            }
+          }, dur / steps)
+        }).catch(() => {})
+      } catch { /* ignore tail failures — main track still transitions */ }
+    }
+
+    // Fade the new track in: start silent, ramp up once it begins playing.
+    setFadeGain(0.0001, 0)
+    switchTrack()
+    requestAnimationFrame(() => setFadeGain(1, dur))
+  }, [crossfadeDuration, setFadeGain])
 
   const toggleLovedSong = (songId) => {
     setLovedSongIds((prev) =>
@@ -625,12 +720,23 @@ function App() {
     }
 
     const files = Array.from(fileList || [])
-    const audioFiles = files.filter((f) => f.type.startsWith('audio/') || f.type === 'video/webm' || f.type === 'video/ogg' || f.name.match(/\.(webm|ogg|opus|m4a)$/i))
-    if (audioFiles.length > 0) setIsUploading(true)
-    if (audioFiles.length === 0) {
+    const allAudioFiles = files.filter((f) => f.type.startsWith('audio/') || f.type === 'video/webm' || f.type === 'video/ogg' || f.name.match(/\.(webm|ogg|opus|m4a)$/i))
+    if (allAudioFiles.length === 0) {
       if (files.length > 0) showUploadNotice('error', 'No supported audio files were selected.')
       return
     }
+
+    // Enforce the per-account upload cap. Read the live library size from the
+    // ref so this isn't a stale closure.
+    const existingCount = stateRef.current.songs?.length ?? 0
+    if (existingCount >= MAX_UPLOADS) {
+      showUploadNotice('error', `You've reached the ${MAX_UPLOADS}-song upload limit. Remove a song before adding more.`)
+      return
+    }
+    const audioFiles = allAudioFiles.slice(0, MAX_UPLOADS - existingCount)
+    const skippedForLimit = allAudioFiles.length - audioFiles.length
+
+    setIsUploading(true)
 
     const failures = []
     const newSongs = await Promise.all(
@@ -714,11 +820,14 @@ function App() {
       }),
     )
 
+    const limitNote = skippedForLimit > 0
+      ? ` ${skippedForLimit} song${skippedForLimit > 1 ? 's were' : ' was'} skipped — you've reached the ${MAX_UPLOADS}-song upload limit.`
+      : ''
     if (failures.length > 0) {
       const saved = audioFiles.length - failures.length
-      showUploadNotice('error', `${failures.length} song${failures.length > 1 ? 's' : ''} could not be saved to your library (${failures[0].reason}). ${saved > 0 ? `${saved} saved. ` : ''}Unsaved songs will play until you refresh.`)
+      showUploadNotice('error', `${failures.length} song${failures.length > 1 ? 's' : ''} could not be saved to your library (${failures[0].reason}). ${saved > 0 ? `${saved} saved. ` : ''}Unsaved songs will play until you refresh.${limitNote}`)
     } else {
-      showUploadNotice('success', `${audioFiles.length} song${audioFiles.length > 1 ? 's' : ''} saved to your library.`)
+      showUploadNotice('success', `${audioFiles.length} song${audioFiles.length > 1 ? 's' : ''} saved to your library.${limitNote}`)
     }
 
     setIsUploading(false)
@@ -744,9 +853,10 @@ function App() {
       if (!f) continue
       analyzeAudio(f).then(({ gainDb, bpm }) => {
         setSongs((prev) => prev.map((s) => s.id === song.id ? { ...s, gainDb, bpm } : s))
+        persistSongMeta(song.id, { gainDb, bpm })
       }).catch(() => {})
     }
-  }, [showUploadNotice, user])
+  }, [showUploadNotice, user, persistSongMeta])
 
   const handleUpload = (e) => {
     processAudioFiles(e.target.files || [])
@@ -811,9 +921,10 @@ function App() {
     const song = songs[index]
     markRecent('song', song?.id)
     markSongHistory(song)
-    if (song?.id) {
-      setPlayCounts((prev) => ({ ...prev, [song.id]: (prev[song.id] || 0) + 1 }))
-    }
+    // A play is only counted once it passes the halfway mark (see the ticker).
+    hasCountedRef.current = false
+    // A direct click isn't a crossfade — make sure the new track is full volume.
+    setFadeGain(1, 0)
     setTimeout(() => {
       if (!audioRef.current) return
       audioRef.current.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false))
@@ -895,9 +1006,21 @@ function App() {
   const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
   const effectivePlaybackRate = clampPlaybackRate(playbackRate)
 
+  // Top listened songs for the profile leaderboard (resolved against the
+  // current library so deleted songs drop off automatically).
+  const topListened = Object.entries(playCounts)
+    .map(([id, count]) => ({ song: songs.find((s) => s.id === id), count }))
+    .filter((x) => x.song && x.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+  const topPlayMax = topListened.length ? topListened[0].count : 0
+
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || currentTrackIndex == null || !currentTrackUrl) return
+    // New track: re-arm the end-of-track crossfade and the play-count guard.
+    crossfadeArmedRef.current = false
+    hasCountedRef.current = false
     audio.src = currentTrackUrl
     audio.currentTime = 0
     // A new src resets playbackRate to 1; re-apply the user's speed and keep
@@ -998,6 +1121,12 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-art-color', String(artColorExtract)) }, [artColorExtract])
   useEffect(() => { if (displayName) safeSetStorage('listenwell-display-name', displayName) }, [displayName])
   useEffect(() => { safeSetStorage('listenwell-tile-size', songTileSize) }, [songTileSize])
+  useEffect(() => { safeSetStorage('listenwell-songmeta', JSON.stringify(songMeta)) }, [songMeta])
+  useEffect(() => {
+    if (songsBgUrl) safeSetStorage('listenwell-songs-bg', songsBgUrl)
+    else if (typeof window !== 'undefined') { try { window.localStorage.removeItem('listenwell-songs-bg') } catch { /* ignore */ } }
+  }, [songsBgUrl])
+  useEffect(() => { safeSetStorage('listenwell-songs-bg-blur', String(songsBgBlur)) }, [songsBgBlur])
 
   // Sync per-user state (playlists, loved, settings) with Supabase so it
   // follows the account across devices. localStorage stays as the local cache.
@@ -1026,6 +1155,9 @@ function App() {
     volume,
     playbackRate,
     eqPreset,
+    songMeta,
+    songsBgUrl,
+    songsBgBlur,
   })
 
   useEffect(() => {
@@ -1068,6 +1200,9 @@ function App() {
         if (typeof d.volume === 'number') setVolume(Math.min(1, Math.max(0, d.volume)))
         if (typeof d.playbackRate === 'number') setPlaybackRate(clampPlaybackRate(d.playbackRate))
         if (typeof d.eqPreset === 'string') setEqPreset(d.eqPreset)
+        if (d.songMeta && typeof d.songMeta === 'object') setSongMeta(d.songMeta)
+        if (typeof d.songsBgUrl === 'string' || d.songsBgUrl === null) setSongsBgUrl(d.songsBgUrl)
+        if (typeof d.songsBgBlur === 'number') setSongsBgBlur(d.songsBgBlur)
       } else {
         // First login from this account: migrate this browser's local state up
         const { error: pushError } = await supabase
@@ -1094,7 +1229,29 @@ function App() {
     }, 1200)
     return () => window.clearTimeout(userStateTimerRef.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize, volume, playbackRate, eqPreset])
+  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize, volume, playbackRate, eqPreset, songMeta, songsBgUrl, songsBgBlur])
+
+  // When persisted meta arrives from user_state after songs have already loaded
+  // (login race), fill in any gainDb/bpm/description still at their defaults.
+  // Keyed on songMeta only — never runs while the user types, so live edits in
+  // the metadata modal are left untouched. Guarded to avoid a render loop.
+  useEffect(() => {
+    setSongs((prev) => {
+      if (!prev.length) return prev
+      let changed = false
+      const next = prev.map((s) => {
+        const m = songMeta[s.id]
+        if (!m) return s
+        const merged = { ...s }
+        if (m.description && !s.description) { merged.description = m.description; changed = true }
+        if (typeof m.gainDb === 'number' && !s.gainDb) { merged.gainDb = m.gainDb; changed = true }
+        if (m.bpm != null && s.bpm == null) { merged.bpm = m.bpm; changed = true }
+        return merged
+      })
+      return changed ? next : prev
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [songMeta])
 
   // Apply per-song gain normalisation whenever the track changes
   useEffect(() => {
@@ -1239,9 +1396,18 @@ function App() {
   useEffect(() => {
     if (isPlaying) {
       visualizerFrameRef.current = requestAnimationFrame(runVisualizerFrame)
-    } else if (visualizerFrameRef.current) {
-      cancelAnimationFrame(visualizerFrameRef.current)
-      visualizerFrameRef.current = null
+    } else {
+      if (visualizerFrameRef.current) {
+        cancelAnimationFrame(visualizerFrameRef.current)
+        visualizerFrameRef.current = null
+      }
+      // Settle the shimmer-driven aurora back to its idle level when paused.
+      const root = rootRef.current
+      if (root) {
+        root.style.setProperty('--shimmer-low', '0')
+        root.style.setProperty('--shimmer-mid', '0')
+        root.style.setProperty('--shimmer-high', '0')
+      }
     }
     return () => {
       if (visualizerFrameRef.current) { cancelAnimationFrame(visualizerFrameRef.current); visualizerFrameRef.current = null }
@@ -1255,9 +1421,31 @@ function App() {
     const tick = (ts) => {
       // Throttle to ~10fps: a full App re-render every frame (60fps) while
       // playing was needless; the seek bar reads smoothly at 100ms steps.
-      if (ts - last >= 100 && audioRef.current && !audioRef.current.paused) {
+      const audio = audioRef.current
+      if (ts - last >= 100 && audio && !audio.paused) {
         last = ts
-        setCurrentTime(audioRef.current.currentTime)
+        setCurrentTime(audio.currentTime)
+
+        const dur = audio.duration
+        if (Number.isFinite(dur) && dur > 0) {
+          const { songs: ss, currentTrackIndex: cur, repeat: rep, crossfadeDuration: cf } = stateRef.current
+
+          // Count a play once it passes the halfway mark (covers auto-advance).
+          if (!hasCountedRef.current && audio.currentTime >= dur / 2) {
+            hasCountedRef.current = true
+            const song = cur != null ? ss[cur] : null
+            if (song?.id) setPlayCounts((prev) => ({ ...prev, [song.id]: (prev[song.id] || 0) + 1 }))
+          }
+
+          // Start the crossfade before the track actually ends so the next song
+          // overlaps the tail. Skipped for repeat-one and single-track libraries.
+          if (cf > 0 && !crossfadeArmedRef.current && rep !== 'one' && (ss.length > 1 || rep === 'all')) {
+            if (dur - audio.currentTime <= cf / 1000) {
+              crossfadeArmedRef.current = true
+              handleNextRef.current?.()
+            }
+          }
+        }
       }
       frameId = requestAnimationFrame(tick)
     }
@@ -1299,34 +1487,67 @@ function App() {
       ctx.clearRect(0, 0, W, H)
       const cx = W / 2, cy = H / 2
       const innerR = sphereR + 4
-      const maxBar = cx - innerR - 2
-      const bars = 36
+      const maxBar = Math.max(6, cx - innerR - 2)
+      const bars = 40
       const t = Date.now() / 1000
+
+      // Per-canvas smoothing buffer → fluid, spectrum-analyser motion (fast
+      // attack, slow release) instead of the old raw, jittery bars.
+      let sm = canvas._eqSmooth
+      if (!sm || sm.length !== bars) sm = canvas._eqSmooth = new Float32Array(bars).fill(0.1)
+
+      // Bars read light/cyan at the core and fade to the accent at the tips —
+      // a single radial gradient keeps it cohesive and cheap (one stroke pass).
+      const lr = Math.round(r + (255 - r) * 0.5)
+      const lg = Math.round(g + (255 - g) * 0.5)
+      const lb = Math.round(b + (255 - b) * 0.5)
+      const grad = ctx.createRadialGradient(cx, cy, innerR, cx, cy, innerR + maxBar)
+      grad.addColorStop(0, `rgb(${lr},${lg},${lb})`)
+      grad.addColorStop(1, `rgb(${r},${g},${b})`)
+
+      // Faint gauge baseline ring for an instrument-panel feel
+      ctx.beginPath()
+      ctx.arc(cx, cy, innerR - 1.5, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(${r},${g},${b},0.14)`
+      ctx.lineWidth = 1
+      ctx.stroke()
+
+      const ang = new Array(bars)
       for (let i = 0; i < bars; i++) {
-        const angle = (i / bars) * 2 * Math.PI - Math.PI / 2
-        let value, alpha
+        let target
         if (data) {
-          const dataIdx = Math.floor((i / bars) * data.length * 0.65)
-          value = data[dataIdx] / 255
-          alpha = 0.4 + value * 0.6
+          const idx = Math.floor((i / bars) * data.length * 0.6)
+          target = (data[idx] / 255) ** 0.85
         } else {
-          // Idle pulse so the ring is always visible
-          value = 0.14 + 0.2 * (Math.sin(t * 1.4 + i * 0.7) * 0.5 + 0.5)
-          alpha = 0.45
+          // Gentle idle breathing so the ring is always alive
+          target = 0.12 + 0.16 * (Math.sin(t * 1.3 + i * 0.55) * 0.5 + 0.5)
         }
-        const bLen = value * maxBar + 2
-        const x1 = cx + innerR * Math.cos(angle)
-        const y1 = cy + innerR * Math.sin(angle)
-        const x2 = cx + (innerR + bLen) * Math.cos(angle)
-        const y2 = cy + (innerR + bLen) * Math.sin(angle)
+        sm[i] += (target - sm[i]) * (target > sm[i] ? 0.5 : 0.14)
+        ang[i] = (i / bars) * Math.PI * 2 - Math.PI / 2
+      }
+
+      const strokeBars = (widthPx) => {
         ctx.beginPath()
-        ctx.moveTo(x1, y1)
-        ctx.lineTo(x2, y2)
-        ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`
-        ctx.lineWidth = 2.5
+        for (let i = 0; i < bars; i++) {
+          const bLen = sm[i] * maxBar + 1.5
+          const cos = Math.cos(ang[i]), sin = Math.sin(ang[i])
+          ctx.moveTo(cx + innerR * cos, cy + innerR * sin)
+          ctx.lineTo(cx + (innerR + bLen) * cos, cy + (innerR + bLen) * sin)
+        }
+        ctx.strokeStyle = grad
+        ctx.lineWidth = widthPx
         ctx.lineCap = 'round'
         ctx.stroke()
       }
+
+      // Soft glow underlay, then crisp bars on top
+      ctx.save()
+      ctx.globalAlpha = 0.22
+      ctx.shadowColor = `rgba(${r},${g},${b},0.85)`
+      ctx.shadowBlur = 7
+      strokeBars(4)
+      ctx.restore()
+      strokeBars(2.5)
     }
 
     const renderOnce = () => {
@@ -1359,7 +1580,7 @@ function App() {
   }, [isPlaying, showAccountDrawer])
 
   // Keep stateRef fresh so the keyboard handler always reads current state
-  stateRef.current = { isPlaying, currentTrackIndex, songs, shuffle, repeat, songQueue }
+  stateRef.current = { isPlaying, currentTrackIndex, songs, shuffle, repeat, songQueue, crossfadeDuration }
   eqRingColorRef.current = eqRingColor
   customEqGainsRef.current = customEqGains
 
@@ -1458,6 +1679,10 @@ function App() {
     })
   }
 
+  // Keep a stable handle so the playback ticker can early-trigger crossfades
+  // without capturing a stale handleNext closure.
+  handleNextRef.current = handleNext
+
   const handleSeek = (e) => {
     const audio = audioRef.current
     if (!audio || !duration) return
@@ -1506,7 +1731,11 @@ function App() {
   const selectedSong = selectedSongIndex !== null ? songs[selectedSongIndex] : null
 
   const closeMetadataModal = () => {
-    if (selectedSong?.id) saveSongMetadata(selectedSong)
+    if (selectedSong?.id) {
+      saveSongMetadata(selectedSong)
+      // Description isn't a tracks-table column; persist it with the song meta.
+      persistSongMeta(selectedSong.id, { description: selectedSong.description || '' })
+    }
     setShowMetadataModal(false)
   }
 
@@ -1539,13 +1768,11 @@ function App() {
 
   return (
     <div
+      ref={rootRef}
       data-theme={theme}
       className="relative flex flex-col min-h-screen w-full bg-[#0c0c0e] text-gray-100 overflow-hidden"
       style={{
         '--accent-rgb': playlistAccentOverride || accentColor,
-        '--shimmer-low': shimmer.low,
-        '--shimmer-mid': shimmer.mid,
-        '--shimmer-high': shimmer.high,
         '--aurora-intensity': auroraIntensity,
         '--glow-softness': glowSoftness,
         '--blur-amount': blurAmount,
@@ -1591,6 +1818,9 @@ function App() {
           const { repeat: rep, songs: ss, currentTrackIndex: cur } = stateRef.current
           if (rep === 'one') {
             const audio = audioRef.current
+            // Looping the same track is a fresh play: re-arm the count guard.
+            hasCountedRef.current = false
+            crossfadeArmedRef.current = false
             if (audio) { audio.currentTime = 0; audio.play().catch(() => {}) }
           } else if (ss.length > 1 || rep === 'all') {
             handleNext()
@@ -1599,6 +1829,8 @@ function App() {
           }
         }}
       />
+      {/* Secondary element: plays the outgoing track's tail during a crossfade */}
+      <audio ref={crossfadeAudioRef} />
 
       {/* Header */}
       <header className="app-chrome relative z-20 shrink-0 h-16 sm:h-20 border-b border-white/10 flex items-center justify-end px-4 sm:px-8">
@@ -1716,6 +1948,23 @@ function App() {
                 >
                   <History className="w-5 h-5 shrink-0 text-white/80" />
                   <span>Listening history</span>
+                </button>
+                <div className="h-px bg-white/[0.07] mx-2 my-1" />
+                <button
+                  type="button"
+                  onClick={() => { setLegalTab('privacy'); setShowLogoMenu(false) }}
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left whitespace-nowrap"
+                >
+                  <Shield className="w-5 h-5 shrink-0 text-white/80" />
+                  <span>Privacy Policy</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setLegalTab('terms'); setShowLogoMenu(false) }}
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-4 py-3 text-base text-white transition-colors text-left whitespace-nowrap"
+                >
+                  <ScrollText className="w-5 h-5 shrink-0 text-white/80" />
+                  <span>Terms &amp; Conditions</span>
                 </button>
               </motion.div>
             )}
@@ -2280,7 +2529,24 @@ function App() {
                     onChange={(e) => {
                       const file = e.target.files?.[0]
                       if (!file) return
-                      setSongsBgUrl(URL.createObjectURL(file))
+                      // Downscale to a compact data URL so the background
+                      // survives a refresh (a blob: URL dies on reload).
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        const img = new Image()
+                        img.onload = () => {
+                          const maxW = 1600
+                          const scale = Math.min(1, maxW / img.width)
+                          const canvas = document.createElement('canvas')
+                          canvas.width = Math.round(img.width * scale)
+                          canvas.height = Math.round(img.height * scale)
+                          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+                          setSongsBgUrl(canvas.toDataURL('image/jpeg', 0.82))
+                        }
+                        img.onerror = () => setSongsBgUrl(reader.result)
+                        img.src = reader.result
+                      }
+                      reader.readAsDataURL(file)
                     }}
                   />
                 </label>
@@ -2343,12 +2609,12 @@ function App() {
           tabIndex={nowPlaying ? 0 : -1}
           onClick={() => nowPlaying && setShowNowPlaying(true)}
           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && nowPlaying && setShowNowPlaying(true)}
-          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-white/[0.08] overflow-hidden shrink-0 flex items-center justify-center text-2xl ${nowPlaying ? 'cursor-pointer hover:brightness-110 transition-[filter]' : 'cursor-default'}`}
+          className={`w-14 h-14 sm:w-24 sm:h-24 rounded-xl bg-white/[0.08] overflow-hidden shrink-0 flex items-center justify-center text-2xl ${nowPlaying ? 'cursor-pointer hover:brightness-110 transition-[filter]' : 'cursor-default'}`}
           aria-label="Open now playing"
         >
           {nowPlaying?.coverUrl
             ? <img src={nowPlaying.coverUrl} alt="" className="w-full h-full object-cover" />
-            : <Music2 className="w-5 h-5 text-violet-300/80" />
+            : <Music2 className="w-6 h-6 sm:w-9 sm:h-9 text-violet-300/80" />
           }
         </div>
 
@@ -2633,6 +2899,8 @@ function App() {
         )}
       </AnimatePresence>
 
+      <LegalModal open={legalTab !== null} initialTab={legalTab || 'privacy'} onClose={() => setLegalTab(null)} />
+
       <AnimatePresence>
         {showListeningHistoryModal && (
           <motion.div
@@ -2735,6 +3003,46 @@ function App() {
                     <p className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">{label}</p>
                   </div>
                 ))}
+              </div>
+
+              {/* Listen leaderboard */}
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">Listen leaderboard</p>
+                  <span className="text-[10px] text-gray-600">Top {topListened.length || ''}</span>
+                </div>
+                {topListened.length === 0 ? (
+                  <p className="text-xs text-gray-600">No plays yet. Songs you listen to most will rank here.</p>
+                ) : (
+                  <ol className="flex flex-col gap-2">
+                    {topListened.map(({ song, count }, idx) => {
+                      const rankStyles = [
+                        'text-amber-300 border-amber-300/40 bg-amber-300/10',
+                        'text-gray-200 border-white/30 bg-white/[0.08]',
+                        'text-orange-300 border-orange-300/40 bg-orange-300/10',
+                      ]
+                      const rankClass = rankStyles[idx] || 'text-violet-300 border-violet-400/30 bg-violet-500/10'
+                      return (
+                        <li key={song.id} className="flex items-center gap-2.5">
+                          <span className={`shrink-0 w-5 h-5 rounded-md border flex items-center justify-center text-[10px] font-bold tabular-nums ${rankClass}`}>{idx + 1}</span>
+                          <div className="shrink-0 w-9 h-9 rounded-lg overflow-hidden bg-white/[0.06] flex items-center justify-center">
+                            {song.coverUrl ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" /> : <Music2 className="w-4 h-4 text-white/50" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-white/95 truncate">{song.title || song.fileName}</p>
+                            <div className="mt-1 h-1 rounded-full bg-white/[0.07] overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-cyan-400/80 to-violet-500/80"
+                                style={{ width: `${topPlayMax ? Math.max(8, (count / topPlayMax) * 100) : 0}%` }}
+                              />
+                            </div>
+                          </div>
+                          <span className="shrink-0 text-[11px] tabular-nums text-gray-400 w-12 text-right">{count} {count === 1 ? 'play' : 'plays'}</span>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                )}
               </div>
 
               {/* Appearance shortcuts */}
@@ -2911,24 +3219,12 @@ function App() {
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-2">
-                      <span className="text-xs text-gray-500 font-medium">Custom equalizer</span>
-                      <div className="flex flex-col gap-2.5">
-                        {EQ_BANDS.map((band, i) => (
-                          <div key={band.freq} className="flex items-center gap-3">
-                            <span className="w-9 text-[10px] text-gray-500 tabular-nums shrink-0">{band.label}</span>
-                            <input
-                              type="range" min={-12} max={12} step={1}
-                              value={customEqGains[i] ?? 0}
-                              onChange={(e) => { const v = Number(e.target.value); setCustomEqGains((prev) => prev.map((g, idx) => idx === i ? v : g)) }}
-                              className="flex-1 h-1.5 rounded-full appearance-none bg-white/15 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-400 [&::-webkit-slider-thumb]:cursor-pointer"
-                            />
-                            <span className="w-9 text-[10px] text-gray-400 tabular-nums text-right shrink-0">{(customEqGains[i] ?? 0) > 0 ? '+' : ''}{customEqGains[i] ?? 0}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <button type="button" onClick={() => setCustomEqGains(EQ_BANDS.map(() => 0))} className="self-start text-[11px] text-gray-500 hover:text-gray-300 transition-colors">Reset bands</button>
-                    </div>
+                    <Equalizer
+                      bands={EQ_BANDS}
+                      gains={customEqGains}
+                      onChange={(i, v) => setCustomEqGains((prev) => prev.map((g, idx) => (idx === i ? v : g)))}
+                      onReset={() => setCustomEqGains(EQ_BANDS.map(() => 0))}
+                    />
 
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-gray-300 font-medium">Volume normalisation</span>

@@ -17,6 +17,31 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
+// Downscale a picked image to a compact data URL so the cover survives a
+// refresh and syncs across devices. A blob: object URL dies on reload.
+const fileToCoverDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => {
+    const img = new Image()
+    img.onload = () => {
+      const size = 400
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d')
+      const scale = Math.max(size / img.width, size / img.height)
+      const w = img.width * scale
+      const h = img.height * scale
+      ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
+      resolve(canvas.toDataURL('image/jpeg', 0.82))
+    }
+    img.onerror = reject
+    img.src = reader.result
+  }
+  reader.onerror = reject
+  reader.readAsDataURL(file)
+})
+
 function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex, onPlaySong, onRemove }) {
   const {
     attributes,
@@ -177,7 +202,9 @@ function PlaylistDetailScreen({
                 onChange={(e) => {
                   const file = e.target.files?.[0]
                   if (!file) return
-                  onUpdatePlaylist(playlist.id, { coverUrl: URL.createObjectURL(file) })
+                  fileToCoverDataUrl(file)
+                    .then((coverUrl) => onUpdatePlaylist(playlist.id, { coverUrl }))
+                    .catch(() => onUpdatePlaylist(playlist.id, { coverUrl: URL.createObjectURL(file) }))
                 }}
               />
             </label>
