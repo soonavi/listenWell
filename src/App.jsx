@@ -238,6 +238,9 @@ const MAX_UPLOADS = 50
 function App() {
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
+  // Set when the user opens a password-reset link from their email; Supabase
+  // creates a recovery session and we show the "set new password" screen.
+  const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [uploadNotice, setUploadNotice] = useState(null)
   const uploadNoticeTimerRef = useRef(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -370,6 +373,7 @@ function App() {
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (_event === 'PASSWORD_RECOVERY') setPasswordRecovery(true)
       // Only update when the identity actually changes. Supabase fires this on
       // every background token refresh with a fresh user object; replacing the
       // reference each time would re-run the library/state loaders on a ~30s
@@ -1759,6 +1763,12 @@ function App() {
         <div className="w-8 h-8 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
       </div>
     )
+  }
+
+  // Password recovery — user followed a reset link from their email. Show the
+  // reset screen even though a (recovery) session may already exist.
+  if (passwordRecovery) {
+    return <AuthScreen recovery onAuth={(u) => { setUser(u); setPasswordRecovery(false) }} />
   }
 
   // Auth gate — show login screen if not logged in
