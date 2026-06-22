@@ -1,5 +1,5 @@
 import { supabase } from './lib/supabase'
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import './App.css'
 import { analyzeAudio } from './utils/audioAnalysis'
 import UploadScreen from './components/UploadScreen'
@@ -914,6 +914,11 @@ function App() {
   const handlePlaySongClick = (index) => {
     const audio = audioRef.current
     if (!audio) return
+    // Build the Web Audio graph now, inside the user gesture, so the very first
+    // play already routes through it and resumes the AudioContext. Previously
+    // the graph was only created on the first EQ-preset switch, which is what
+    // made audio cut out at that moment.
+    ensureAudioGraph()
     if (currentTrackIndex === index && isPlaying) {
       audio.pause()
       setIsPlaying(false)
@@ -1011,12 +1016,16 @@ function App() {
   const effectivePlaybackRate = clampPlaybackRate(playbackRate)
 
   // Top listened songs for the profile leaderboard (resolved against the
-  // current library so deleted songs drop off automatically).
-  const topListened = Object.entries(playCounts)
-    .map(([id, count]) => ({ song: songs.find((s) => s.id === id), count }))
-    .filter((x) => x.song && x.count > 0)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5)
+  // current library so deleted songs drop off automatically). Memoized so the
+  // O(plays × songs) sort+lookup doesn't run on every render — this component
+  // re-renders ~10×/second while a track is playing.
+  const topListened = useMemo(() => (
+    Object.entries(playCounts)
+      .map(([id, count]) => ({ song: songs.find((s) => s.id === id), count }))
+      .filter((x) => x.song && x.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+  ), [playCounts, songs])
   const topPlayMax = topListened.length ? topListened[0].count : 0
 
   useEffect(() => {
@@ -1027,6 +1036,10 @@ function App() {
     hasCountedRef.current = false
     audio.src = currentTrackUrl
     audio.currentTime = 0
+    // The 10fps ticker is the only currentTime writer now (the redundant
+    // onTimeUpdate handler re-rendered the whole app on top of it); reset the
+    // displayed position here so a paused track switch still shows 0:00.
+    setCurrentTime(0)
     // A new src resets playbackRate to 1; re-apply the user's speed and keep
     // pitch natural rather than chipmunked.
     audio.preservesPitch = true
@@ -1632,7 +1645,7 @@ function App() {
     const audio = audioRef.current
     if (!audio || currentTrackIndex == null) return
     if (isPlaying) audio.pause()
-    else audio.play().catch(() => {})
+    else { ensureAudioGraph(); audio.play().catch(() => {}) }
     setIsPlaying(!isPlaying)
   }
 
@@ -1814,7 +1827,11 @@ function App() {
       )}
       <audio
         ref={audioRef}
-        onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
+        // Signed URLs come from the Supabase storage origin. Without this,
+        // routing the element through createMediaElementSource() silences the
+        // stream (cross-origin media is muted in Web Audio), which is what made
+        // playback "break" the first time the EQ graph was activated.
+        crossOrigin="anonymous"
         onLoadedMetadata={() => {
           const a = audioRef.current
           if (!a) return
@@ -1840,7 +1857,7 @@ function App() {
         }}
       />
       {/* Secondary element: plays the outgoing track's tail during a crossfade */}
-      <audio ref={crossfadeAudioRef} />
+      <audio ref={crossfadeAudioRef} crossOrigin="anonymous" />
 
       {/* Header */}
       <header className="app-chrome relative z-20 shrink-0 h-16 sm:h-20 border-b border-white/10 flex items-center justify-end px-4 sm:px-8">
