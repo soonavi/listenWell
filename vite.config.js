@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
 export default defineConfig({
+  // Relative base so the built app also works from file:// inside Electron
+  base: './',
   plugins: [
     react(),
     tailwindcss(),

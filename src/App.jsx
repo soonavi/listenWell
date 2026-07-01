@@ -1924,7 +1924,7 @@ function App() {
             className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
             aria-label="Menu"
           >
-            <img src="/logo.svg" alt="listenWell" className="w-8 h-8 sm:w-11 sm:h-11" />
+            <img src="./logo.svg" alt="listenWell" className="w-8 h-8 sm:w-11 sm:h-11" />
             <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
           </button>
           <AnimatePresence>

@@ -146,7 +146,7 @@ export default function AuthScreen({ onAuth, recovery = false }) {
       {/* Branding */}
       <div className="relative flex flex-col items-center gap-3 text-center">
         <div className="w-20 h-20 rounded-2xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center">
-          <img src="/logo.svg" alt="" className="w-12 h-12" aria-hidden />
+          <img src="./logo.svg" alt="" className="w-12 h-12" aria-hidden />
         </div>
         <h1 className="section-title text-2xl sm:text-3xl font-bold text-gray-100">ListenWell</h1>
         <p className="text-base text-gray-400">Your music, your way.</p>
