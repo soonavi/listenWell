@@ -244,7 +244,7 @@ function SongsScreen({
 
         {visibleSongs.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-sm text-gray-500 gap-3">
-            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center"><img src="/logo.svg" alt="Listenwell" className="w-7 h-7 opacity-70" /></span>
+            <span className="w-14 h-14 rounded-2xl bg-white/[0.06] border border-white/10 inline-flex items-center justify-center"><img src="./logo.svg" alt="Listenwell" className="w-7 h-7 opacity-70" /></span>
             <p>{normalizedQuery ? 'No songs match your search.' : songFilter === 'loved' ? 'No loved songs yet.' : 'No songs yet.'}</p>
             <button type="button" onClick={onGoToUpload} className="px-4 py-2 rounded-full bg-white text-black text-xs font-medium hover:bg-gray-100 transition">Upload music</button>
           </div>
