@@ -234,6 +234,8 @@ const SIGNED_URL_TTL = 60 * 60 * 24 * 7
 
 // Per-account upload cap. Temporary while limits/monetization are decided.
 const MAX_UPLOADS = 50
+// Owner accounts exempt from the upload cap
+const UNLIMITED_UPLOAD_EMAILS = ['attakhelicoptir@gmail.com']
 
 function App() {
   const [user, setUser] = useState(null)
@@ -736,12 +738,15 @@ function App() {
 
     // Enforce the per-account upload cap. Read the live library size from the
     // ref so this isn't a stale closure.
+    const uploadCap = UNLIMITED_UPLOAD_EMAILS.includes(currentUser.email?.toLowerCase())
+      ? Infinity
+      : MAX_UPLOADS
     const existingCount = stateRef.current.songs?.length ?? 0
-    if (existingCount >= MAX_UPLOADS) {
+    if (existingCount >= uploadCap) {
       showUploadNotice('error', `You've reached the ${MAX_UPLOADS}-song upload limit. Remove a song before adding more.`)
       return
     }
-    const audioFiles = allAudioFiles.slice(0, MAX_UPLOADS - existingCount)
+    const audioFiles = allAudioFiles.slice(0, uploadCap - existingCount)
     const skippedForLimit = allAudioFiles.length - audioFiles.length
 
     setIsUploading(true)
