@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import {
   Music2, X, Shuffle, SkipBack, SkipForward, Play, Pause,
   Repeat, Repeat1, Heart, Volume2, MicVocal, SlidersHorizontal,
+  Plus, Pencil, Settings2, Check,
 } from 'lucide-react'
 
 function formatTime(seconds) {
@@ -40,6 +41,7 @@ function NowPlayingOverlay({
   repeat,
   lovedSongIds,
   lyrics = '',
+  playlists = [],
   onMetadataChange,
   onClose,
   onPlayPause,
@@ -50,8 +52,13 @@ function NowPlayingOverlay({
   onToggleShuffle,
   onToggleRepeat,
   onToggleLoved,
+  onToggleInPlaylist,
+  onCreatePlaylistWithSong,
+  onEditSong,
+  onOpenSettings,
 }) {
   const [view, setView] = useState('controls') // 'controls' | 'lyrics'
+  const [showAddMenu, setShowAddMenu] = useState(false)
   const isLoved = song ? lovedSongIds.includes(song.id) : false
   const lrcLines = useMemo(() => parseLrc(lyrics), [lyrics])
   const isLrc = lrcLines.length > 0
@@ -134,17 +141,25 @@ function NowPlayingOverlay({
       {/* ── CONTROLS VIEW ── */}
       {view === 'controls' && (
         <div className="relative z-10 flex flex-col items-center gap-7 px-6 w-full max-w-[420px]">
-          {/* Album art */}
+          {/* Album art — swipe horizontally to skip */}
           <motion.div
             initial={{ scale: 0.88, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.08, duration: 0.4, ease: 'easeOut' }}
-            className="w-60 h-60 sm:w-72 sm:h-72 rounded-2xl overflow-hidden bg-white/[0.07] flex items-center justify-center shadow-2xl"
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0.22}
+            dragMomentum={false}
+            onDragEnd={(event, info) => {
+              if (info.offset.x < -70 || info.velocity.x < -500) onNext()
+              else if (info.offset.x > 70 || info.velocity.x > 500) onPrev()
+            }}
+            className="w-60 h-60 sm:w-72 sm:h-72 rounded-2xl overflow-hidden bg-white/[0.07] flex items-center justify-center shadow-2xl cursor-grab active:cursor-grabbing"
             style={{ boxShadow: '0 28px 80px rgba(0,0,0,0.65)' }}
           >
             {song?.coverUrl
-              ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" />
-              : <img src="./logo.svg" alt="Listenwell" className="w-20 h-20 opacity-40" />
+              ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
+              : <img src="./logo.svg" alt="Listenwell" className="w-20 h-20 opacity-40 pointer-events-none" draggable={false} />
             }
           </motion.div>
 
@@ -247,6 +262,66 @@ function NowPlayingOverlay({
               onChange={onVolumeChange}
               className="flex-1 h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
             />
+          </div>
+
+          {/* Song actions */}
+          <div className="flex items-center gap-5">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowAddMenu((prev) => !prev)}
+                title="Add to playlist"
+                className={`w-10 h-10 rounded-full border flex items-center justify-center transition-colors ${showAddMenu ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/15 bg-white/[0.05] text-gray-400 hover:text-white hover:border-white/40'}`}
+              >
+                <Plus className="w-[18px] h-[18px]" />
+              </button>
+              {showAddMenu && song && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
+                  <div className="absolute bottom-[calc(100%+0.5rem)] left-1/2 -translate-x-1/2 z-20 w-60 max-h-64 overflow-y-auto rounded-2xl border border-white/15 bg-[#0e1016]/96 backdrop-blur-xl p-1.5">
+                    <p className="text-[11px] font-medium text-gray-500 px-3 pt-1.5 pb-1">Add to playlist</p>
+                    {playlists.map((pl) => {
+                      const added = pl.songIds.includes(song.id)
+                      return (
+                        <button
+                          key={pl.id}
+                          type="button"
+                          onClick={() => onToggleInPlaylist?.(pl.id, song.id)}
+                          className="w-full flex items-center gap-2 rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-left transition-colors"
+                        >
+                          <span className="text-sm text-white truncate flex-1">{pl.name}</span>
+                          {added && <Check className="w-4 h-4 text-violet-300 shrink-0" />}
+                        </button>
+                      )
+                    })}
+                    {playlists.length > 0 && <div className="h-px bg-white/[0.07] mx-2 my-0.5" />}
+                    <button
+                      type="button"
+                      onClick={() => { onCreatePlaylistWithSong?.(song.id); setShowAddMenu(false); onClose() }}
+                      className="w-full rounded-xl hover:bg-cyan-500/10 px-3 py-2.5 text-left transition-colors"
+                    >
+                      <span className="text-sm text-white whitespace-nowrap">+ New playlist &amp; add</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onEditSong}
+              title="Edit song"
+              className="w-10 h-10 rounded-full border border-white/15 bg-white/[0.05] flex items-center justify-center text-gray-400 hover:text-white hover:border-white/40 transition-colors"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              title="Playback settings"
+              className="w-10 h-10 rounded-full border border-white/15 bg-white/[0.05] flex items-center justify-center text-gray-400 hover:text-white hover:border-white/40 transition-colors"
+            >
+              <Settings2 className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

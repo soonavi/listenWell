@@ -234,6 +234,8 @@ const SIGNED_URL_TTL = 60 * 60 * 24 * 7
 
 // Per-account upload cap. Temporary while limits/monetization are decided.
 const MAX_UPLOADS = 50
+// Owner accounts exempt from the upload cap
+const UNLIMITED_UPLOAD_EMAILS = ['attakhelicoptir@gmail.com']
 
 function App() {
   const [user, setUser] = useState(null)
@@ -302,6 +304,10 @@ function App() {
   const [audioOutputs, setAudioOutputs] = useState([])
   const [outputDeviceId, setOutputDeviceId] = useState(() => safeGetStorage('listenwell-output', 'default'))
   const [accentColor, setAccentColor] = useState('139 92 246')
+  // Dominant cover colour for the mobile mini player bar, darkened for white text
+  const [miniBarColor, setMiniBarColor] = useState('24 21 31')
+  // Suppresses the tap-to-open when a swipe gesture just ended on the mini bar
+  const miniBarDragRef = useRef(false)
   // Shimmer is written straight to the root element's CSS vars from the
   // visualizer's rAF loop. Keeping it out of React state avoids a full App
   // re-render on every animation frame (~60fps) while a track plays.
@@ -732,12 +738,15 @@ function App() {
 
     // Enforce the per-account upload cap. Read the live library size from the
     // ref so this isn't a stale closure.
+    const uploadCap = UNLIMITED_UPLOAD_EMAILS.includes(currentUser.email?.toLowerCase())
+      ? Infinity
+      : MAX_UPLOADS
     const existingCount = stateRef.current.songs?.length ?? 0
-    if (existingCount >= MAX_UPLOADS) {
+    if (existingCount >= uploadCap) {
       showUploadNotice('error', `You've reached the ${MAX_UPLOADS}-song upload limit. Remove a song before adding more.`)
       return
     }
-    const audioFiles = allAudioFiles.slice(0, MAX_UPLOADS - existingCount)
+    const audioFiles = allAudioFiles.slice(0, uploadCap - existingCount)
     const skippedForLimit = allAudioFiles.length - audioFiles.length
 
     setIsUploading(true)
@@ -946,6 +955,15 @@ function App() {
 
   const handleRemoveFromManualQueue = useCallback((idx) => {
     setSongQueue((prev) => prev.filter((_, i) => i !== idx))
+  }, [])
+
+  const handleReorderManualQueue = useCallback((fromIndex, toIndex) => {
+    setSongQueue((prev) => {
+      const next = [...prev]
+      const [item] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, item)
+      return next
+    })
   }, [])
 
   const handleReorderQueue = useCallback((fromIndex, toIndex) => {
@@ -1303,6 +1321,39 @@ function App() {
     img.onerror = () => setAccentColor('139 92 246')
     img.src = coverUrl
   }, [artColorExtract, currentTrackIndex, songs])
+
+  // Dominant colour of the current cover for the mobile mini player background.
+  // Always on (independent of the artColorExtract accent toggle); darkened so
+  // white text stays readable.
+  useEffect(() => {
+    const coverUrl = songs[currentTrackIndex]?.coverUrl
+    if (!coverUrl) { setMiniBarColor('24 21 31'); return }
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = 8; canvas.height = 8
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, 8, 8)
+        const data = ctx.getImageData(0, 0, 8, 8).data
+        let r = 0, g = 0, b = 0, count = 0
+        for (let i = 0; i < data.length; i += 4) {
+          const lum = (data[i] + data[i + 1] + data[i + 2]) / 3
+          if (lum < 30 || lum > 225) continue
+          r += data[i]; g += data[i + 1]; b += data[i + 2]; count++
+        }
+        if (count === 0) { setMiniBarColor('24 21 31'); return }
+        r /= count; g /= count; b /= count
+        // Normalise brightness into a dark band (max channel ~120)
+        const max = Math.max(r, g, b, 1)
+        const k = Math.min(120 / max, 1.6)
+        setMiniBarColor(`${Math.round(r * k)} ${Math.round(g * k)} ${Math.round(b * k)}`)
+      } catch { setMiniBarColor('24 21 31') }
+    }
+    img.onerror = () => setMiniBarColor('24 21 31')
+    img.src = coverUrl
+  }, [currentTrackIndex, songs])
 
   // Override accent with playlist colour when on playlist-detail page
   useEffect(() => {
@@ -1769,6 +1820,14 @@ function App() {
     { id: 'upload', label: 'Upload', icon: Upload },
   ]
 
+  // Mobile bottom nav leads with Home instead of Library
+  const MOBILE_NAV_TABS = [
+    { id: 'home', label: 'Home', icon: Home },
+    { id: 'playlists', label: 'Playlists', icon: ListMusic },
+    { id: 'songs', label: 'Songs', icon: Music2 },
+    { id: 'upload', label: 'Upload', icon: Upload },
+  ]
+
   // Auth loading spinner
   if (authLoading) {
     return (
@@ -1878,7 +1937,7 @@ function App() {
           ) : (
             <>
               <span className="w-2 h-2 rounded-full bg-gray-700 shrink-0" />
-              <span className="text-[11px] sm:text-xs text-gray-600 truncate">Now Playing: —</span>
+              <span className="text-[11px] sm:text-xs text-gray-600 truncate">Nothing playing</span>
             </>
           )}
         </div>
@@ -1906,7 +1965,7 @@ function App() {
           type="button"
           onClick={() => setActivePage('home')}
           aria-label="Home"
-          className={`magnetic-hover shrink-0 mr-2 sm:mr-3 flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full border transition ${
+          className={`magnetic-hover shrink-0 mr-2 sm:mr-3 hidden sm:flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full border transition ${
             activePage === 'home'
               ? 'bg-violet-500/15 border-violet-500/60 text-violet-100'
               : 'border-white/15 bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/40 text-gray-300'
@@ -2309,26 +2368,86 @@ function App() {
 
       </main>
 
-      {/* Mobile bottom nav (visible sm and below) */}
-      <nav className="app-chrome flex sm:hidden shrink-0 border-t border-white/10 backdrop-blur-xl">
-        {NAV_TABS.map((tab) => {
-          const Icon = tab.icon
-          const isActive = activePage === tab.id || (tab.id === 'playlists' && activePage === 'playlist-detail')
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActivePage(tab.id)}
-              className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[10px] transition-colors ${
-                isActive ? 'text-violet-400' : 'text-gray-600'
-              }`}
+      {/* Mobile bottom cluster: mini player above the nav (the full player bar is desktop-only) */}
+      <div className="sm:hidden shrink-0 relative z-10">
+        {nowPlaying && (
+          <div className="px-2 pb-1.5">
+            <motion.div
+              role="button"
+              tabIndex={0}
+              aria-label="Open now playing"
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.16}
+              dragMomentum={false}
+              onDragStart={() => { miniBarDragRef.current = true }}
+              onDragEnd={(event, info) => {
+                if (info.offset.x < -56 || info.velocity.x < -500) handleNext()
+                else if (info.offset.x > 56 || info.velocity.x > 500) handlePrev()
+                window.setTimeout(() => { miniBarDragRef.current = false }, 80)
+              }}
+              onClick={() => { if (!miniBarDragRef.current) setShowNowPlaying(true) }}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setShowNowPlaying(true)}
+              className="relative flex items-center gap-2.5 rounded-lg pl-1.5 pr-1 py-1.5 overflow-hidden cursor-pointer select-none"
+              style={{ backgroundColor: `rgb(${miniBarColor})` }}
             >
-              <Icon className="w-5 h-5" />
-              {tab.label}
-            </button>
-          )
-        })}
-      </nav>
+              <div className="w-10 h-10 rounded-md overflow-hidden bg-black/25 flex items-center justify-center shrink-0">
+                {nowPlaying.coverUrl
+                  ? <img src={nowPlaying.coverUrl} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
+                  : <Music2 className="w-4 h-4 text-white/60" />}
+              </div>
+              <div className="min-w-0 flex-1 pb-0.5">
+                <p className="text-[13px] font-semibold text-white truncate">{nowPlaying.title || nowPlaying.fileName}</p>
+                <p className="text-[11px] text-white/60 truncate">{nowPlaying.artist || 'Unknown artist'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setShowUpNext((prev) => !prev) }}
+                aria-label="Queue"
+                className={`shrink-0 w-10 h-10 flex items-center justify-center transition-colors ${showUpNext ? 'text-white' : 'text-white/70'}`}
+              >
+                <ListMusic className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handlePlayPause() }}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+                className="shrink-0 w-11 h-11 flex items-center justify-center text-white"
+              >
+                {isPlaying
+                  ? <Pause className="w-6 h-6" fill="currentColor" strokeWidth={0} />
+                  : <Play className="w-6 h-6 ml-0.5" fill="currentColor" strokeWidth={0} />}
+              </button>
+              {/* progress hairline */}
+              <div className="absolute left-2 right-2 bottom-[3px] h-[2px] rounded-full bg-white/20 pointer-events-none">
+                <div
+                  className="h-full rounded-full bg-white/90"
+                  style={{ width: `${duration ? Math.min(100, (currentTime / duration) * 100) : 0}%` }}
+                />
+              </div>
+            </motion.div>
+          </div>
+        )}
+        <nav className="app-chrome flex border-t border-white/10 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+          {MOBILE_NAV_TABS.map((tab) => {
+            const Icon = tab.icon
+            const isActive = activePage === tab.id || (tab.id === 'playlists' && activePage === 'playlist-detail')
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActivePage(tab.id)}
+                className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] transition-colors ${
+                  isActive ? 'text-violet-400' : 'text-gray-400'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                {tab.label}
+              </button>
+            )
+          })}
+        </nav>
+      </div>
 
       {/* Settings Panel */}
       {showSettings && (
@@ -2627,7 +2746,7 @@ function App() {
       )}
 
       {/* Bottom Player Bar */}
-      <footer className="app-chrome relative z-10 h-20 sm:h-36 border-t border-white/10 backdrop-blur-xl flex items-center px-3 sm:px-8 gap-2.5 sm:gap-8 w-full shrink-0 overflow-visible">
+      <footer className="app-chrome relative z-10 h-36 border-t border-white/10 backdrop-blur-xl hidden sm:flex items-center px-8 gap-8 w-full shrink-0 overflow-visible">
         <div className="cat-hanging" aria-hidden />
 
         {/* Album art — click to open NowPlaying overlay */}
@@ -2648,7 +2767,7 @@ function App() {
         <div ref={nowPlayingMenuRef} className="flex-1 sm:flex-none sm:w-52 min-w-0 relative">
           <div className="flex items-center gap-2">
             <p className="text-sm sm:text-base font-semibold truncate text-white/95 flex-1">
-              {nowPlaying ? nowPlaying.title || nowPlaying.fileName : 'No song selected'}
+              {nowPlaying ? nowPlaying.title || nowPlaying.fileName : 'Not playing'}
             </p>
             {nowPlaying && (
               <button
@@ -2661,14 +2780,14 @@ function App() {
             )}
           </div>
           <p className="text-xs sm:text-sm text-gray-500 truncate">
-            {nowPlaying?.artist || (nowPlaying ? 'Unknown artist' : '—')}
+            {nowPlaying?.artist || (nowPlaying ? 'Unknown artist' : 'Pick a song')}
           </p>
           {showNowPlayingAddMenu && nowPlaying && (
             <>
             <div className="fixed inset-0 z-[29]" onClick={() => setShowNowPlayingAddMenu(false)} />
             <div className="menu-panel absolute z-[30] left-0 bottom-[calc(100%+1rem)] w-64 max-h-[min(50vh,320px)] overflow-y-auto rounded-2xl border border-white/15 backdrop-blur-2xl p-1.5 flex flex-col gap-0.5">
               <div className="px-3 pt-1.5 pb-1">
-                <p className="text-[9px] uppercase tracking-widest text-gray-600">Add to</p>
+                <p className="text-[11px] font-medium text-gray-500">Add to</p>
               </div>
               <button
                 type="button"
@@ -2731,7 +2850,7 @@ function App() {
               onClick={handlePrev}
               disabled={songs.length === 0}
               aria-label="Previous track"
-              className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="magnetic-hover hidden sm:block p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipBack className="w-6 h-6 sm:w-6 sm:h-6" />
             </button>
@@ -2740,9 +2859,9 @@ function App() {
               onClick={handlePlayPause}
               disabled={songs.length === 0}
               aria-label={isPlaying ? 'Pause' : 'Play'}
-              className="magnetic-hover ring-pulse w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className="magnetic-hover ring-pulse w-14 h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              {isPlaying ? <Pause className="w-5 h-5" strokeWidth={1.75} /> : <Play className="w-5 h-5 ml-0.5" strokeWidth={1.75} />}
+              {isPlaying ? <Pause className="w-6 h-6" strokeWidth={1.75} /> : <Play className="w-6 h-6 ml-0.5" strokeWidth={1.75} />}
             </button>
             <button
               type="button"
@@ -2763,7 +2882,7 @@ function App() {
               {repeat === 'one' ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
             </button>
           </div>
-          <div className="flex items-center gap-3 text-xs sm:text-sm text-gray-500 absolute left-3 right-3 -top-[5px] sm:static sm:w-full">
+          <div className="flex items-center gap-3 text-xs sm:text-sm text-gray-500 absolute left-0 right-0 -top-[5px] sm:static sm:w-full">
             <span className="hidden sm:block w-10 shrink-0 tabular-nums text-right">{formatTime(currentTime)}</span>
             <input
               type="range"
@@ -2774,7 +2893,7 @@ function App() {
               onInput={handleSeek}
               onChange={handleSeek}
               aria-label="Seek"
-              className="flex-1 h-2 rounded-full appearance-none bg-white/25 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+              className="flex-1 h-1 sm:h-2 rounded-full appearance-none bg-white/25 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 sm:[&::-webkit-slider-thumb]:w-3.5 sm:[&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
             />
             <span className="hidden sm:block w-10 shrink-0 tabular-nums">{formatTime(duration)}</span>
           </div>
@@ -2814,7 +2933,7 @@ function App() {
           type="button"
           onClick={() => (showSettings ? closeSettingsPanel() : openSettingsPanel())}
           aria-label="Settings"
-          className="magnetic-hover ml-1 flex items-center justify-center w-11 h-11 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
+          className="magnetic-hover ml-1 flex items-center justify-center w-10 h-10 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
         >
           <Settings2 className="w-5 h-5 sm:w-8 sm:h-8" />
         </button>
@@ -2822,7 +2941,7 @@ function App() {
         <button
           type="button"
           onClick={() => setShowUpNext((prev) => !prev)}
-          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-11 h-11 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
+          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-10 h-10 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
           title="Up Next"
         >
           <ListMusic className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -2862,12 +2981,12 @@ function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.97 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="menu-panel fixed right-4 sm:right-6 bottom-[8.5rem] sm:bottom-[9.5rem] z-40 w-80 xl:w-96 flex flex-col rounded-2xl overflow-hidden"
+            className="menu-panel fixed left-3 right-3 sm:left-auto sm:right-6 bottom-[8.5rem] sm:bottom-[9.5rem] z-40 w-auto sm:w-80 xl:w-96 flex flex-col rounded-2xl overflow-hidden backdrop-blur-xl"
             style={{ maxHeight: '420px' }}
           >
             <div className="px-4 pt-3 pb-2 shrink-0 border-b border-white/[0.06] flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-400/80 shrink-0 animate-pulse" />
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Up Next</p>
+              <p className="text-sm font-semibold text-white">Queue</p>
               {(songQueue.length > 0 || (currentTrackIndex != null && songs.slice(currentTrackIndex + 1).length > 0)) && (
                 <span className="ml-auto text-[10px] text-gray-600 tabular-nums">{songQueue.length + (currentTrackIndex != null ? songs.slice(currentTrackIndex + 1).length : 0)} tracks</span>
               )}
@@ -2888,6 +3007,7 @@ function App() {
                 onRemoveSong={handleRemoveFromQueue}
                 onRemoveFromManualQueue={handleRemoveFromManualQueue}
                 onReorder={handleReorderQueue}
+                onReorderManualQueue={handleReorderManualQueue}
                 onEditMetadata={handleEditQueueSong}
               />
             </div>
@@ -3027,7 +3147,7 @@ function App() {
                 ].map(({ label, value }) => (
                   <div key={label} className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5 text-center">
                     <p className="text-base font-semibold text-white tabular-nums">{value}</p>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">{label}</p>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{label}</p>
                   </div>
                 ))}
               </div>
@@ -3035,7 +3155,7 @@ function App() {
               {/* Listen leaderboard */}
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">Listen leaderboard</p>
+                  <p className="text-xs font-semibold text-gray-300">Most played</p>
                   <span className="text-[10px] text-gray-600">Top {topListened.length || ''}</span>
                 </div>
                 {topListened.length === 0 ? (
@@ -3074,7 +3194,7 @@ function App() {
 
               {/* Appearance shortcuts */}
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-2">
-                <p className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">Quick settings</p>
+                <p className="text-xs font-semibold text-gray-300">Quick settings</p>
                 <div className="flex items-center justify-between text-xs text-gray-300">
                   <span>Theme</span>
                   <span className="capitalize text-violet-300">{theme}</span>
@@ -3095,7 +3215,7 @@ function App() {
 
               {/* Saved Presets */}
               <div className="flex-1 min-h-0 flex flex-col gap-2">
-                <p className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">Saved presets</p>
+                <p className="text-xs font-semibold text-gray-300">Saved presets</p>
                 <div className="space-y-2 overflow-auto pr-0.5" style={{ maxHeight: '28vh' }}>
                   {savedPresets.length === 0 ? (
                     <p className="text-xs text-gray-600">No saved presets yet. Use Settings → Save current profile preset.</p>
@@ -3140,6 +3260,36 @@ function App() {
             repeat={repeat}
             lovedSongIds={lovedSongIds}
             lyrics={nowPlaying?.lyrics || ''}
+            playlists={playlists}
+            onToggleInPlaylist={(playlistId, songId) => {
+              setPlaylists((prev) =>
+                prev.map((pl) =>
+                  pl.id === playlistId
+                    ? {
+                        ...pl,
+                        songIds: pl.songIds.includes(songId)
+                          ? pl.songIds.filter((id) => id !== songId)
+                          : [...pl.songIds, songId],
+                      }
+                    : pl,
+                ),
+              )
+            }}
+            onCreatePlaylistWithSong={createPlaylistWithSong}
+            onEditSong={() => {
+              if (currentTrackIndex == null) return
+              setShowNowPlaying(false)
+              setSelectedSongIndex(currentTrackIndex)
+              setShowMetadataModal(true)
+            }}
+            onOpenSettings={() => {
+              setShowNowPlaying(false)
+              setSettingsPosition(clampSettingsPosition(
+                (window.innerWidth - SETTINGS_PANEL_W) / 2,
+                (window.innerHeight - SETTINGS_PANEL_H) / 2,
+              ))
+              setShowSettings(true)
+            }}
             onMetadataChange={(field, value) => {
               if (currentTrackIndex != null)
                 setSongs((prev) => prev.map((s, i) => i === currentTrackIndex ? { ...s, [field]: value } : s))

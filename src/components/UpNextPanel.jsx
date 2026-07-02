@@ -4,6 +4,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
@@ -16,8 +17,8 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { Music2, X, GripVertical, Pencil } from 'lucide-react'
 
-function SortableQueueItem({ song, idx, onPlay, onRemove, onEditMetadata }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: song.id })
+function SortableQueueItem({ id, song, idx, onPlay, onRemove, onEditMetadata }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const [ctxMenu, setCtxMenu] = useState(null)
 
   const style = {
@@ -37,7 +38,7 @@ function SortableQueueItem({ song, idx, onPlay, onRemove, onEditMetadata }) {
   return (
     <div ref={setNodeRef} style={style} className="relative">
       <div
-        className={`flex items-center gap-2 rounded-xl px-2 py-1.5 group transition-colors ${isDragging ? 'bg-white/[0.1]' : 'hover:bg-white/[0.06]'}`}
+        className={`flex items-center gap-1.5 rounded-xl pr-1.5 py-1.5 group transition-colors ${isDragging ? 'bg-white/[0.1]' : 'hover:bg-white/[0.06]'}`}
         onContextMenu={openCtx}
       >
         {/* drag handle */}
@@ -45,10 +46,10 @@ function SortableQueueItem({ song, idx, onPlay, onRemove, onEditMetadata }) {
           type="button"
           {...attributes}
           {...listeners}
-          className="touch-none shrink-0 text-gray-700 hover:text-gray-400 cursor-grab active:cursor-grabbing p-0.5 transition-colors"
+          className="touch-none shrink-0 text-gray-600 hover:text-gray-300 cursor-grab active:cursor-grabbing p-2 -my-1 transition-colors"
           aria-label="Drag to reorder"
         >
-          <GripVertical className="w-3 h-3" />
+          <GripVertical className="w-4 h-4" />
         </button>
 
         {/* index */}
@@ -58,37 +59,36 @@ function SortableQueueItem({ song, idx, onPlay, onRemove, onEditMetadata }) {
         <button
           type="button"
           onClick={onPlay}
-          className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.05] flex items-center justify-center shrink-0 hover:ring-1 hover:ring-violet-400/40 transition-all"
+          className="w-9 h-9 rounded-md overflow-hidden bg-white/[0.05] flex items-center justify-center shrink-0 hover:ring-1 hover:ring-violet-400/40 transition-all"
         >
           {song.coverUrl
             ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" />
             : <Music2 className="w-3.5 h-3.5 text-gray-600" />}
         </button>
 
-        {/* title + artist — inline, single line */}
-        <button type="button" onClick={onPlay} className="min-w-0 flex-1 text-left flex items-center gap-1.5 overflow-hidden">
-          <span className="text-xs font-medium text-gray-300 group-hover:text-white transition-colors truncate">{song.title || song.fileName}</span>
-          <span className="text-[10px] text-gray-700 shrink-0 hidden group-hover:inline truncate">·</span>
-          <span className="text-[10px] text-gray-600 truncate hidden group-hover:inline">{song.artist || 'Unknown'}</span>
+        {/* title + artist */}
+        <button type="button" onClick={onPlay} className="min-w-0 flex-1 text-left overflow-hidden pl-1">
+          <span className="block text-xs font-medium text-gray-300 group-hover:text-white transition-colors truncate">{song.title || song.fileName}</span>
+          <span className="block text-[10px] text-gray-500 truncate">{song.artist || 'Unknown artist'}</span>
         </button>
 
-        {/* action buttons */}
-        <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* action buttons — always visible on touch, hover-revealed on desktop */}
+        <div className="flex items-center shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
           <button
             type="button"
             onClick={onEditMetadata}
-            className="p-0.5 text-gray-600 hover:text-violet-400 transition-colors"
+            className="p-1.5 text-gray-500 hover:text-violet-400 transition-colors"
             aria-label="Edit metadata"
           >
-            <Pencil className="w-3 h-3" />
+            <Pencil className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
             onClick={onRemove}
-            className="p-0.5 text-gray-600 hover:text-red-400 transition-colors"
+            className="p-1.5 text-gray-500 hover:text-red-400 transition-colors"
             aria-label="Remove from queue"
           >
-            <X className="w-3 h-3" />
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -131,52 +131,13 @@ function SortableQueueItem({ song, idx, onPlay, onRemove, onEditMetadata }) {
   )
 }
 
-function ManualQueueItem({ song, idx, onPlay, onRemove, onEditMetadata }) {
-  return (
-    <div className="flex items-center gap-2 rounded-xl px-2 py-1.5 group transition-colors hover:bg-white/[0.06]">
-      <span className="text-[10px] text-gray-700 w-4 text-right shrink-0 tabular-nums">{idx + 1}</span>
-      <button
-        type="button"
-        onClick={onPlay}
-        className="w-8 h-8 rounded-md overflow-hidden bg-white/[0.05] flex items-center justify-center shrink-0 hover:ring-1 hover:ring-violet-400/40 transition-all"
-      >
-        {song.coverUrl
-          ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" />
-          : <Music2 className="w-3.5 h-3.5 text-gray-600" />}
-      </button>
-      <button type="button" onClick={onPlay} className="min-w-0 flex-1 text-left flex items-center gap-1.5 overflow-hidden">
-        <span className="text-xs font-medium text-gray-300 group-hover:text-white transition-colors truncate">{song.title || song.fileName}</span>
-        <span className="text-[10px] text-gray-700 shrink-0 hidden group-hover:inline truncate">·</span>
-        <span className="text-[10px] text-gray-600 truncate hidden group-hover:inline">{song.artist || 'Unknown'}</span>
-      </button>
-      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={onEditMetadata}
-          className="p-0.5 text-gray-600 hover:text-violet-400 transition-colors"
-          aria-label="Edit metadata"
-        >
-          <Pencil className="w-3 h-3" />
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="p-0.5 text-gray-600 hover:text-red-400 transition-colors"
-          aria-label="Remove from queue"
-        >
-          <X className="w-3 h-3" />
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function UpNextPanel({ songs, currentTrackIndex, songQueue = [], onPlaySong, onRemoveSong, onRemoveFromManualQueue, onReorder, onEditMetadata }) {
+function UpNextPanel({ songs, currentTrackIndex, songQueue = [], onPlaySong, onRemoveSong, onRemoveFromManualQueue, onReorder, onReorderManualQueue, onEditMetadata }) {
   const queuedSongs = songQueue.map(id => songs.find(s => s.id === id)).filter(Boolean)
   const upNext = currentTrackIndex != null ? songs.slice(currentTrackIndex + 1) : []
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
@@ -185,6 +146,15 @@ function UpNextPanel({ songs, currentTrackIndex, songQueue = [], onPlaySong, onR
     const fromIdx = upNext.findIndex((s) => s.id === active.id)
     const toIdx = upNext.findIndex((s) => s.id === over.id)
     if (fromIdx !== -1 && toIdx !== -1) onReorder(fromIdx, toIdx)
+  }
+
+  // Manual-queue ids are index-composite so duplicate songs stay distinct
+  const manualIds = queuedSongs.map((s, i) => `m-${i}-${s.id}`)
+  const handleManualDragEnd = ({ active, over }) => {
+    if (!active || !over || active.id === over.id) return
+    const fromIdx = manualIds.indexOf(active.id)
+    const toIdx = manualIds.indexOf(over.id)
+    if (fromIdx !== -1 && toIdx !== -1) onReorderManualQueue?.(fromIdx, toIdx)
   }
 
   if (queuedSongs.length === 0 && upNext.length === 0) {
@@ -200,26 +170,33 @@ function UpNextPanel({ songs, currentTrackIndex, songQueue = [], onPlaySong, onR
     <div className="space-y-0.5">
       {queuedSongs.length > 0 && (
         <div className="mb-1">
-          <p className="text-[9px] uppercase tracking-widest text-gray-600 px-2 py-1">In queue</p>
-          {queuedSongs.map((song, idx) => (
-            <ManualQueueItem
-              key={`q-${song.id}-${idx}`}
-              song={song}
-              idx={idx}
-              onPlay={() => {
-                const i = songs.findIndex(s => s.id === song.id)
-                if (i !== -1) onPlaySong(i)
-              }}
-              onRemove={() => onRemoveFromManualQueue?.(idx)}
-              onEditMetadata={() => onEditMetadata(song)}
-            />
-          ))}
+          <p className="text-[11px] font-medium text-gray-500 px-2 py-1">In queue</p>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleManualDragEnd}>
+            <SortableContext items={manualIds} strategy={verticalListSortingStrategy}>
+              <div className="space-y-0.5">
+                {queuedSongs.map((song, idx) => (
+                  <SortableQueueItem
+                    key={manualIds[idx]}
+                    id={manualIds[idx]}
+                    song={song}
+                    idx={idx}
+                    onPlay={() => {
+                      const i = songs.findIndex(s => s.id === song.id)
+                      if (i !== -1) onPlaySong(i)
+                    }}
+                    onRemove={() => onRemoveFromManualQueue?.(idx)}
+                    onEditMetadata={() => onEditMetadata(song)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         </div>
       )}
       {upNext.length > 0 && (
         <>
           {queuedSongs.length > 0 && (
-            <p className="text-[9px] uppercase tracking-widest text-gray-600 px-2 py-1 mt-1">Next in playlist</p>
+            <p className="text-[11px] font-medium text-gray-500 px-2 py-1 mt-1">Next in playlist</p>
           )}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={upNext.map((s) => s.id)} strategy={verticalListSortingStrategy}>
@@ -227,6 +204,7 @@ function UpNextPanel({ songs, currentTrackIndex, songQueue = [], onPlaySong, onR
                 {upNext.slice(0, 20).map((song, idx) => (
                   <SortableQueueItem
                     key={song.id}
+                    id={song.id}
                     song={song}
                     idx={idx}
                     onPlay={() => onPlaySong(currentTrackIndex + 1 + idx)}
