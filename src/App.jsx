@@ -302,6 +302,10 @@ function App() {
   const [audioOutputs, setAudioOutputs] = useState([])
   const [outputDeviceId, setOutputDeviceId] = useState(() => safeGetStorage('listenwell-output', 'default'))
   const [accentColor, setAccentColor] = useState('139 92 246')
+  // Dominant cover colour for the mobile mini player bar, darkened for white text
+  const [miniBarColor, setMiniBarColor] = useState('24 21 31')
+  // Suppresses the tap-to-open when a swipe gesture just ended on the mini bar
+  const miniBarDragRef = useRef(false)
   // Shimmer is written straight to the root element's CSS vars from the
   // visualizer's rAF loop. Keeping it out of React state avoids a full App
   // re-render on every animation frame (~60fps) while a track plays.
@@ -1313,6 +1317,39 @@ function App() {
     img.src = coverUrl
   }, [artColorExtract, currentTrackIndex, songs])
 
+  // Dominant colour of the current cover for the mobile mini player background.
+  // Always on (independent of the artColorExtract accent toggle); darkened so
+  // white text stays readable.
+  useEffect(() => {
+    const coverUrl = songs[currentTrackIndex]?.coverUrl
+    if (!coverUrl) { setMiniBarColor('24 21 31'); return }
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = 8; canvas.height = 8
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, 8, 8)
+        const data = ctx.getImageData(0, 0, 8, 8).data
+        let r = 0, g = 0, b = 0, count = 0
+        for (let i = 0; i < data.length; i += 4) {
+          const lum = (data[i] + data[i + 1] + data[i + 2]) / 3
+          if (lum < 30 || lum > 225) continue
+          r += data[i]; g += data[i + 1]; b += data[i + 2]; count++
+        }
+        if (count === 0) { setMiniBarColor('24 21 31'); return }
+        r /= count; g /= count; b /= count
+        // Normalise brightness into a dark band (max channel ~120)
+        const max = Math.max(r, g, b, 1)
+        const k = Math.min(120 / max, 1.6)
+        setMiniBarColor(`${Math.round(r * k)} ${Math.round(g * k)} ${Math.round(b * k)}`)
+      } catch { setMiniBarColor('24 21 31') }
+    }
+    img.onerror = () => setMiniBarColor('24 21 31')
+    img.src = coverUrl
+  }, [currentTrackIndex, songs])
+
   // Override accent with playlist colour when on playlist-detail page
   useEffect(() => {
     if (activePage === 'playlist-detail' && selectedPlaylistId) {
@@ -1773,6 +1810,14 @@ function App() {
 
   const NAV_TABS = [
     { id: 'library', label: 'Library', icon: Library },
+    { id: 'playlists', label: 'Playlists', icon: ListMusic },
+    { id: 'songs', label: 'Songs', icon: Music2 },
+    { id: 'upload', label: 'Upload', icon: Upload },
+  ]
+
+  // Mobile bottom nav leads with Home instead of Library
+  const MOBILE_NAV_TABS = [
+    { id: 'home', label: 'Home', icon: Home },
     { id: 'playlists', label: 'Playlists', icon: ListMusic },
     { id: 'songs', label: 'Songs', icon: Music2 },
     { id: 'upload', label: 'Upload', icon: Upload },
@@ -2318,26 +2363,86 @@ function App() {
 
       </main>
 
-      {/* Mobile bottom nav (visible sm and below) */}
-      <nav className="app-chrome flex sm:hidden shrink-0 border-t border-white/10 backdrop-blur-xl">
-        {NAV_TABS.map((tab) => {
-          const Icon = tab.icon
-          const isActive = activePage === tab.id || (tab.id === 'playlists' && activePage === 'playlist-detail')
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActivePage(tab.id)}
-              className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] transition-colors ${
-                isActive ? 'text-violet-400' : 'text-gray-400'
-              }`}
+      {/* Mobile bottom cluster: mini player above the nav (the full player bar is desktop-only) */}
+      <div className="sm:hidden shrink-0 relative z-10">
+        {nowPlaying && (
+          <div className="px-2 pb-1.5">
+            <motion.div
+              role="button"
+              tabIndex={0}
+              aria-label="Open now playing"
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.16}
+              dragMomentum={false}
+              onDragStart={() => { miniBarDragRef.current = true }}
+              onDragEnd={(event, info) => {
+                if (info.offset.x < -56 || info.velocity.x < -500) handleNext()
+                else if (info.offset.x > 56 || info.velocity.x > 500) handlePrev()
+                window.setTimeout(() => { miniBarDragRef.current = false }, 80)
+              }}
+              onClick={() => { if (!miniBarDragRef.current) setShowNowPlaying(true) }}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setShowNowPlaying(true)}
+              className="relative flex items-center gap-2.5 rounded-lg pl-1.5 pr-1 py-1.5 overflow-hidden cursor-pointer select-none"
+              style={{ backgroundColor: `rgb(${miniBarColor})` }}
             >
-              <Icon className="w-5 h-5" />
-              {tab.label}
-            </button>
-          )
-        })}
-      </nav>
+              <div className="w-10 h-10 rounded-md overflow-hidden bg-black/25 flex items-center justify-center shrink-0">
+                {nowPlaying.coverUrl
+                  ? <img src={nowPlaying.coverUrl} alt="" className="w-full h-full object-cover pointer-events-none" draggable={false} />
+                  : <Music2 className="w-4 h-4 text-white/60" />}
+              </div>
+              <div className="min-w-0 flex-1 pb-0.5">
+                <p className="text-[13px] font-semibold text-white truncate">{nowPlaying.title || nowPlaying.fileName}</p>
+                <p className="text-[11px] text-white/60 truncate">{nowPlaying.artist || 'Unknown artist'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setShowUpNext((prev) => !prev) }}
+                aria-label="Queue"
+                className={`shrink-0 w-10 h-10 flex items-center justify-center transition-colors ${showUpNext ? 'text-white' : 'text-white/70'}`}
+              >
+                <ListMusic className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handlePlayPause() }}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+                className="shrink-0 w-11 h-11 flex items-center justify-center text-white"
+              >
+                {isPlaying
+                  ? <Pause className="w-6 h-6" fill="currentColor" strokeWidth={0} />
+                  : <Play className="w-6 h-6 ml-0.5" fill="currentColor" strokeWidth={0} />}
+              </button>
+              {/* progress hairline */}
+              <div className="absolute left-2 right-2 bottom-[3px] h-[2px] rounded-full bg-white/20 pointer-events-none">
+                <div
+                  className="h-full rounded-full bg-white/90"
+                  style={{ width: `${duration ? Math.min(100, (currentTime / duration) * 100) : 0}%` }}
+                />
+              </div>
+            </motion.div>
+          </div>
+        )}
+        <nav className="app-chrome flex border-t border-white/10 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+          {MOBILE_NAV_TABS.map((tab) => {
+            const Icon = tab.icon
+            const isActive = activePage === tab.id || (tab.id === 'playlists' && activePage === 'playlist-detail')
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActivePage(tab.id)}
+                className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] transition-colors ${
+                  isActive ? 'text-violet-400' : 'text-gray-400'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                {tab.label}
+              </button>
+            )
+          })}
+        </nav>
+      </div>
 
       {/* Settings Panel */}
       {showSettings && (
@@ -2636,7 +2741,7 @@ function App() {
       )}
 
       {/* Bottom Player Bar */}
-      <footer className="app-chrome relative z-10 h-[calc(5rem+env(safe-area-inset-bottom))] sm:h-36 pb-[env(safe-area-inset-bottom)] sm:pb-0 border-t border-white/10 backdrop-blur-xl flex items-center px-3 sm:px-8 gap-2.5 sm:gap-8 w-full shrink-0 overflow-visible">
+      <footer className="app-chrome relative z-10 h-36 border-t border-white/10 backdrop-blur-xl hidden sm:flex items-center px-8 gap-8 w-full shrink-0 overflow-visible">
         <div className="cat-hanging" aria-hidden />
 
         {/* Album art — click to open NowPlaying overlay */}
@@ -3150,6 +3255,36 @@ function App() {
             repeat={repeat}
             lovedSongIds={lovedSongIds}
             lyrics={nowPlaying?.lyrics || ''}
+            playlists={playlists}
+            onToggleInPlaylist={(playlistId, songId) => {
+              setPlaylists((prev) =>
+                prev.map((pl) =>
+                  pl.id === playlistId
+                    ? {
+                        ...pl,
+                        songIds: pl.songIds.includes(songId)
+                          ? pl.songIds.filter((id) => id !== songId)
+                          : [...pl.songIds, songId],
+                      }
+                    : pl,
+                ),
+              )
+            }}
+            onCreatePlaylistWithSong={createPlaylistWithSong}
+            onEditSong={() => {
+              if (currentTrackIndex == null) return
+              setShowNowPlaying(false)
+              setSelectedSongIndex(currentTrackIndex)
+              setShowMetadataModal(true)
+            }}
+            onOpenSettings={() => {
+              setShowNowPlaying(false)
+              setSettingsPosition(clampSettingsPosition(
+                (window.innerWidth - SETTINGS_PANEL_W) / 2,
+                (window.innerHeight - SETTINGS_PANEL_H) / 2,
+              ))
+              setShowSettings(true)
+            }}
             onMetadataChange={(field, value) => {
               if (currentTrackIndex != null)
                 setSongs((prev) => prev.map((s, i) => i === currentTrackIndex ? { ...s, [field]: value } : s))
