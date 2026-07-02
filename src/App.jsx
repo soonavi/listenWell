@@ -1960,7 +1960,7 @@ function App() {
           type="button"
           onClick={() => setActivePage('home')}
           aria-label="Home"
-          className={`magnetic-hover shrink-0 mr-2 sm:mr-3 flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full border transition ${
+          className={`magnetic-hover shrink-0 mr-2 sm:mr-3 hidden sm:flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-full border transition ${
             activePage === 'home'
               ? 'bg-violet-500/15 border-violet-500/60 text-violet-100'
               : 'border-white/15 bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/40 text-gray-300'
