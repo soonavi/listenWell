@@ -409,7 +409,7 @@ function SongsScreen({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="px-3 pt-1.5 pb-1">
-            <p className="text-[9px] uppercase tracking-widest text-gray-600">Track actions</p>
+            <p className="text-[11px] font-medium text-gray-500">Track actions</p>
           </div>
           <button
             type="button"
@@ -429,7 +429,7 @@ function SongsScreen({
           </button>
           <div className="h-px bg-white/[0.07] mx-2 my-0.5" />
           <div className="px-3 py-1">
-            <p className="text-[9px] uppercase tracking-widest text-gray-600">Add to playlist</p>
+            <p className="text-[11px] font-medium text-gray-500">Add to playlist</p>
           </div>
           <button
             type="button"

@@ -948,6 +948,15 @@ function App() {
     setSongQueue((prev) => prev.filter((_, i) => i !== idx))
   }, [])
 
+  const handleReorderManualQueue = useCallback((fromIndex, toIndex) => {
+    setSongQueue((prev) => {
+      const next = [...prev]
+      const [item] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, item)
+      return next
+    })
+  }, [])
+
   const handleReorderQueue = useCallback((fromIndex, toIndex) => {
     const base = (stateRef.current.currentTrackIndex ?? -1) + 1
     setSongs((prev) => {
@@ -1878,7 +1887,7 @@ function App() {
           ) : (
             <>
               <span className="w-2 h-2 rounded-full bg-gray-700 shrink-0" />
-              <span className="text-[11px] sm:text-xs text-gray-600 truncate">Now Playing: —</span>
+              <span className="text-[11px] sm:text-xs text-gray-600 truncate">Nothing playing</span>
             </>
           )}
         </div>
@@ -2319,8 +2328,8 @@ function App() {
               key={tab.id}
               type="button"
               onClick={() => setActivePage(tab.id)}
-              className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[10px] transition-colors ${
-                isActive ? 'text-violet-400' : 'text-gray-600'
+              className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] transition-colors ${
+                isActive ? 'text-violet-400' : 'text-gray-400'
               }`}
             >
               <Icon className="w-5 h-5" />
@@ -2627,7 +2636,7 @@ function App() {
       )}
 
       {/* Bottom Player Bar */}
-      <footer className="app-chrome relative z-10 h-20 sm:h-36 border-t border-white/10 backdrop-blur-xl flex items-center px-3 sm:px-8 gap-2.5 sm:gap-8 w-full shrink-0 overflow-visible">
+      <footer className="app-chrome relative z-10 h-[calc(5rem+env(safe-area-inset-bottom))] sm:h-36 pb-[env(safe-area-inset-bottom)] sm:pb-0 border-t border-white/10 backdrop-blur-xl flex items-center px-3 sm:px-8 gap-2.5 sm:gap-8 w-full shrink-0 overflow-visible">
         <div className="cat-hanging" aria-hidden />
 
         {/* Album art — click to open NowPlaying overlay */}
@@ -2648,7 +2657,7 @@ function App() {
         <div ref={nowPlayingMenuRef} className="flex-1 sm:flex-none sm:w-52 min-w-0 relative">
           <div className="flex items-center gap-2">
             <p className="text-sm sm:text-base font-semibold truncate text-white/95 flex-1">
-              {nowPlaying ? nowPlaying.title || nowPlaying.fileName : 'No song selected'}
+              {nowPlaying ? nowPlaying.title || nowPlaying.fileName : 'Not playing'}
             </p>
             {nowPlaying && (
               <button
@@ -2661,14 +2670,14 @@ function App() {
             )}
           </div>
           <p className="text-xs sm:text-sm text-gray-500 truncate">
-            {nowPlaying?.artist || (nowPlaying ? 'Unknown artist' : '—')}
+            {nowPlaying?.artist || (nowPlaying ? 'Unknown artist' : 'Pick a song')}
           </p>
           {showNowPlayingAddMenu && nowPlaying && (
             <>
             <div className="fixed inset-0 z-[29]" onClick={() => setShowNowPlayingAddMenu(false)} />
             <div className="menu-panel absolute z-[30] left-0 bottom-[calc(100%+1rem)] w-64 max-h-[min(50vh,320px)] overflow-y-auto rounded-2xl border border-white/15 backdrop-blur-2xl p-1.5 flex flex-col gap-0.5">
               <div className="px-3 pt-1.5 pb-1">
-                <p className="text-[9px] uppercase tracking-widest text-gray-600">Add to</p>
+                <p className="text-[11px] font-medium text-gray-500">Add to</p>
               </div>
               <button
                 type="button"
@@ -2731,7 +2740,7 @@ function App() {
               onClick={handlePrev}
               disabled={songs.length === 0}
               aria-label="Previous track"
-              className="magnetic-hover p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="magnetic-hover hidden sm:block p-1.5 sm:p-2 text-gray-400 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <SkipBack className="w-6 h-6 sm:w-6 sm:h-6" />
             </button>
@@ -2740,9 +2749,9 @@ function App() {
               onClick={handlePlayPause}
               disabled={songs.length === 0}
               aria-label={isPlaying ? 'Pause' : 'Play'}
-              className="magnetic-hover ring-pulse w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className="magnetic-hover ring-pulse w-14 h-14 rounded-full bg-[#18151f] text-white flex items-center justify-center hover:scale-105 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              {isPlaying ? <Pause className="w-5 h-5" strokeWidth={1.75} /> : <Play className="w-5 h-5 ml-0.5" strokeWidth={1.75} />}
+              {isPlaying ? <Pause className="w-6 h-6" strokeWidth={1.75} /> : <Play className="w-6 h-6 ml-0.5" strokeWidth={1.75} />}
             </button>
             <button
               type="button"
@@ -2763,7 +2772,7 @@ function App() {
               {repeat === 'one' ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
             </button>
           </div>
-          <div className="flex items-center gap-3 text-xs sm:text-sm text-gray-500 absolute left-3 right-3 -top-[5px] sm:static sm:w-full">
+          <div className="flex items-center gap-3 text-xs sm:text-sm text-gray-500 absolute left-0 right-0 -top-[5px] sm:static sm:w-full">
             <span className="hidden sm:block w-10 shrink-0 tabular-nums text-right">{formatTime(currentTime)}</span>
             <input
               type="range"
@@ -2774,7 +2783,7 @@ function App() {
               onInput={handleSeek}
               onChange={handleSeek}
               aria-label="Seek"
-              className="flex-1 h-2 rounded-full appearance-none bg-white/25 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+              className="flex-1 h-1 sm:h-2 rounded-full appearance-none bg-white/25 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 sm:[&::-webkit-slider-thumb]:w-3.5 sm:[&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
             />
             <span className="hidden sm:block w-10 shrink-0 tabular-nums">{formatTime(duration)}</span>
           </div>
@@ -2814,7 +2823,7 @@ function App() {
           type="button"
           onClick={() => (showSettings ? closeSettingsPanel() : openSettingsPanel())}
           aria-label="Settings"
-          className="magnetic-hover ml-1 flex items-center justify-center w-11 h-11 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
+          className="magnetic-hover ml-1 flex items-center justify-center w-10 h-10 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
         >
           <Settings2 className="w-5 h-5 sm:w-8 sm:h-8" />
         </button>
@@ -2822,7 +2831,7 @@ function App() {
         <button
           type="button"
           onClick={() => setShowUpNext((prev) => !prev)}
-          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-11 h-11 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
+          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-10 h-10 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
           title="Up Next"
         >
           <ListMusic className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -2862,12 +2871,12 @@ function App() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.97 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="menu-panel fixed right-4 sm:right-6 bottom-[8.5rem] sm:bottom-[9.5rem] z-40 w-80 xl:w-96 flex flex-col rounded-2xl overflow-hidden"
+            className="menu-panel fixed left-3 right-3 sm:left-auto sm:right-6 bottom-[8.5rem] sm:bottom-[9.5rem] z-40 w-auto sm:w-80 xl:w-96 flex flex-col rounded-2xl overflow-hidden backdrop-blur-xl"
             style={{ maxHeight: '420px' }}
           >
             <div className="px-4 pt-3 pb-2 shrink-0 border-b border-white/[0.06] flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-400/80 shrink-0 animate-pulse" />
-              <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Up Next</p>
+              <p className="text-sm font-semibold text-white">Queue</p>
               {(songQueue.length > 0 || (currentTrackIndex != null && songs.slice(currentTrackIndex + 1).length > 0)) && (
                 <span className="ml-auto text-[10px] text-gray-600 tabular-nums">{songQueue.length + (currentTrackIndex != null ? songs.slice(currentTrackIndex + 1).length : 0)} tracks</span>
               )}
@@ -2888,6 +2897,7 @@ function App() {
                 onRemoveSong={handleRemoveFromQueue}
                 onRemoveFromManualQueue={handleRemoveFromManualQueue}
                 onReorder={handleReorderQueue}
+                onReorderManualQueue={handleReorderManualQueue}
                 onEditMetadata={handleEditQueueSong}
               />
             </div>
@@ -3027,7 +3037,7 @@ function App() {
                 ].map(({ label, value }) => (
                   <div key={label} className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5 text-center">
                     <p className="text-base font-semibold text-white tabular-nums">{value}</p>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">{label}</p>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{label}</p>
                   </div>
                 ))}
               </div>
@@ -3035,7 +3045,7 @@ function App() {
               {/* Listen leaderboard */}
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">Listen leaderboard</p>
+                  <p className="text-xs font-semibold text-gray-300">Most played</p>
                   <span className="text-[10px] text-gray-600">Top {topListened.length || ''}</span>
                 </div>
                 {topListened.length === 0 ? (
@@ -3074,7 +3084,7 @@ function App() {
 
               {/* Appearance shortcuts */}
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex flex-col gap-2">
-                <p className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">Quick settings</p>
+                <p className="text-xs font-semibold text-gray-300">Quick settings</p>
                 <div className="flex items-center justify-between text-xs text-gray-300">
                   <span>Theme</span>
                   <span className="capitalize text-violet-300">{theme}</span>
@@ -3095,7 +3105,7 @@ function App() {
 
               {/* Saved Presets */}
               <div className="flex-1 min-h-0 flex flex-col gap-2">
-                <p className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">Saved presets</p>
+                <p className="text-xs font-semibold text-gray-300">Saved presets</p>
                 <div className="space-y-2 overflow-auto pr-0.5" style={{ maxHeight: '28vh' }}>
                   {savedPresets.length === 0 ? (
                     <p className="text-xs text-gray-600">No saved presets yet. Use Settings → Save current profile preset.</p>

@@ -40,7 +40,7 @@ export default function Equalizer({ bands, gains, onChange, onReset }) {
   return (
     <div className="rounded-xl border border-white/10 bg-black/30 p-3.5">
       <div className="flex items-center justify-between mb-2.5">
-        <span className="text-[11px] uppercase tracking-widest text-gray-500 font-medium">Graphic equalizer</span>
+        <span className="text-xs font-semibold text-gray-300">Equalizer</span>
         <button
           type="button"
           onClick={onReset}

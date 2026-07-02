@@ -5,6 +5,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
@@ -72,7 +73,7 @@ function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex
       <div
         {...attributes}
         {...listeners}
-        className="text-gray-700 hover:text-gray-400 cursor-grab active:cursor-grabbing shrink-0 touch-none"
+        className="text-gray-600 hover:text-gray-300 cursor-grab active:cursor-grabbing shrink-0 touch-none p-2 -m-1"
       >
         <GripVertical className="w-4 h-4" />
       </div>
@@ -141,6 +142,7 @@ function PlaylistDetailScreen({
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
@@ -211,7 +213,7 @@ function PlaylistDetailScreen({
           </div>
 
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-widest text-gray-600 mb-0.5">Playlist</p>
+            <p className="text-[11px] font-medium text-gray-500 mb-0.5">Playlist</p>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold text-white truncate leading-tight">{playlist.name}</h1>
               <button
@@ -267,7 +269,7 @@ function PlaylistDetailScreen({
         {/* Track list */}
         <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col overflow-hidden glass-card">
           <div className="px-4 py-3 border-b border-white/[0.06] shrink-0">
-            <p className="text-[10px] uppercase tracking-widest text-gray-500">Tracks</p>
+            <p className="text-sm font-semibold text-gray-200">Tracks</p>
           </div>
           <div className="flex-1 overflow-y-auto px-2 py-2">
             {playlistSongs.length === 0 ? (
@@ -307,7 +309,7 @@ function PlaylistDetailScreen({
         {/* Add songs panel */}
         <div className="w-full max-h-[40%] lg:max-h-none lg:w-80 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col overflow-hidden glass-card shrink-0">
           <div className="px-4 py-3 border-b border-white/[0.06] shrink-0 space-y-2">
-            <p className="text-[10px] uppercase tracking-widest text-gray-500">Add Songs</p>
+            <p className="text-sm font-semibold text-gray-200">Add songs</p>
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-gray-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
