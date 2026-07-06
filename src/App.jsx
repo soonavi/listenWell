@@ -1702,6 +1702,14 @@ function App() {
 
   const handlePrev = () => {
     if (songs.length === 0) return
+    const audio = audioRef.current
+    // Past ~2s into the track: restart it instead of jumping to the previous one
+    if (audio && currentTrackIndex !== null && audio.currentTime > 2) {
+      hasCountedRef.current = false
+      crossfadeArmedRef.current = false
+      audio.currentTime = 0
+      return
+    }
     const next = currentTrackIndex === null ? 0 : (currentTrackIndex - 1 + songs.length) % songs.length
     crossfade(() => {
       setCurrentTrackIndex(next)
@@ -1866,7 +1874,7 @@ function App() {
       {uploadNotice && (
         <div
           role="status"
-          className={`fixed top-24 left-1/2 -translate-x-1/2 z-50 max-w-md px-4 py-2.5 rounded-lg border bg-[#0c0c0e]/95 backdrop-blur text-xs leading-relaxed shadow-lg ${
+          className={`fixed top-[calc(env(safe-area-inset-top)+6rem)] left-1/2 -translate-x-1/2 z-50 max-w-md px-4 py-2.5 rounded-lg border bg-[#0c0c0e]/95 backdrop-blur text-xs leading-relaxed shadow-lg ${
             uploadNotice.type === 'error'
               ? 'border-red-500/40 text-red-300'
               : 'border-white/15 text-gray-200'
@@ -1919,7 +1927,9 @@ function App() {
       <audio ref={crossfadeAudioRef} crossOrigin="anonymous" />
 
       {/* Header */}
-      <header className="app-chrome relative z-20 shrink-0 h-16 sm:h-20 border-b border-white/10 flex items-center justify-end px-4 sm:px-8">
+      {/* pt/h include the top safe area so the phone's status bar (time + battery)
+          doesn't cover the header when installed as a PWA */}
+      <header className="app-chrome relative z-20 shrink-0 h-[calc(4rem+env(safe-area-inset-top))] sm:h-[calc(5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] border-b border-white/10 flex items-center justify-end px-4 sm:px-8">
         {/* Now Playing indicator — top left. Capped well short of the Home
             button on mobile and truncated with an ellipsis so it never
             overlaps it. */}
@@ -3099,7 +3109,7 @@ function App() {
             <motion.aside
               initial={{ x: 340, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 340, opacity: 0 }}
               transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="fixed right-4 top-4 bottom-4 z-50 w-[340px] rounded-2xl border border-white/10 bg-[#0f1117]/90 backdrop-blur-xl p-4 flex flex-col gap-3 glass-card overflow-y-auto"
+              className="fixed right-4 top-[calc(env(safe-area-inset-top)+1rem)] bottom-4 z-50 w-[340px] rounded-2xl border border-white/10 bg-[#0f1117]/90 backdrop-blur-xl p-4 flex flex-col gap-3 glass-card overflow-y-auto"
             >
               <div className="flex items-center justify-between shrink-0">
                 <h3 className="text-sm font-semibold text-white tracking-wide">Account</h3>

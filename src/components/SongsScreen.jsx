@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
-import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square, MoreVertical } from 'lucide-react'
+import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square, MoreVertical, Upload } from 'lucide-react'
 import { GooeyInput } from '@/components/ui/gooey-input'
+
+// Same list as UploadScreen — the explicit extensions matter on mobile pickers,
+// which can gray out files that only match by extension, not MIME type.
+const AUDIO_ACCEPT = 'audio/*,video/webm,video/ogg,.mp3,.m4a,.aac,.flac,.wav,.webm,.ogg,.opus'
 
 function SongsScreen({
   songs,
@@ -240,6 +244,15 @@ function SongsScreen({
           <span className="text-xs text-gray-600 tabular-nums whitespace-nowrap shrink-0">
             {visibleSongs.length} track{visibleSongs.length !== 1 ? 's' : ''}
           </span>
+
+          {/* Upload — mobile only; desktop has the grid's upload tile */}
+          <label
+            aria-label="Upload songs"
+            className="sm:hidden shrink-0 w-8 h-8 rounded-full border border-white/10 bg-white/[0.04] active:bg-white/[0.08] flex items-center justify-center text-gray-400 cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <input type="file" accept={AUDIO_ACCEPT} multiple className="hidden" onChange={onUploadMore} />
+          </label>
         </div>
 
         {visibleSongs.length === 0 ? (
@@ -285,7 +298,7 @@ function SongsScreen({
                         </span>
                         <span className="text-xs">Upload song</span>
                       </div>
-                      <input type="file" accept="audio/*,video/webm,video/ogg,.webm,.ogg,.opus" multiple className="hidden" onChange={onUploadMore} />
+                      <input type="file" accept={AUDIO_ACCEPT} multiple className="hidden" onChange={onUploadMore} />
                     </label>
                   )
                 }
