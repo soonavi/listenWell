@@ -111,14 +111,14 @@ function NowPlayingOverlay({
       <button
         type="button"
         onClick={onClose}
-        className="absolute top-5 right-5 z-10 w-10 h-10 rounded-full border border-white/15 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/40 transition-colors bg-white/[0.05]"
+        className="absolute top-[calc(env(safe-area-inset-top)+1.25rem)] right-5 z-10 w-10 h-10 rounded-full border border-white/15 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/40 transition-colors bg-white/[0.05]"
       >
         <X className="w-5 h-5" />
       </button>
 
       {/* View toggle — only show when lyrics exist */}
       {(lyrics && lyrics.trim()) && (
-        <div className="absolute top-5 left-5 z-10 flex gap-1 rounded-full border border-white/15 bg-white/[0.05] p-1">
+        <div className="absolute top-[calc(env(safe-area-inset-top)+1.25rem)] left-5 z-10 flex gap-1 rounded-full border border-white/15 bg-white/[0.05] p-1">
           <button
             type="button"
             onClick={() => setView('controls')}
