@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
-import { Music2, Plus, ImagePlus, Play } from 'lucide-react'
+import { Music2, Plus, ImagePlus, Play, Filter } from 'lucide-react'
 // eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion'
 
-function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist, accentPresets = [] }) {
+function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onCreateSmartPlaylist, onSelectPlaylist, accentPresets = [] }) {
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -75,6 +75,22 @@ function PlaylistsScreen({ playlists, songs, onCreatePlaylist, onSelectPlaylist,
               <span className="text-[11px] text-gray-600 group-hover:text-gray-400 transition-colors">New playlist</span>
             </div>
             <p className="text-sm font-medium text-gray-600 group-hover:text-gray-300 transition-colors">New playlist</p>
+            <p className="text-[11px] text-gray-700">—</p>
+          </button>
+
+          {/* Smart playlist card — contents come from rules you write */}
+          <button
+            type="button"
+            onClick={onCreateSmartPlaylist}
+            className="flex flex-col gap-2 cursor-pointer group text-left rounded-2xl p-2 transition-all duration-200"
+          >
+            <div className="w-full aspect-square rounded-xl overflow-hidden border-2 border-dashed border-white/12 group-hover:border-cyan-400/50 flex flex-col items-center justify-center transition-colors bg-white/[0.02] group-hover:bg-cyan-400/5">
+              <div className="w-10 h-10 rounded-full border border-white/15 group-hover:border-cyan-300/60 flex items-center justify-center transition-colors mb-2">
+                <Filter className="w-5 h-5 text-gray-600 group-hover:text-cyan-300 transition-colors" />
+              </div>
+              <span className="text-[11px] text-gray-600 group-hover:text-gray-400 transition-colors">Rule-based</span>
+            </div>
+            <p className="text-sm font-medium text-gray-600 group-hover:text-gray-300 transition-colors">Smart playlist</p>
             <p className="text-[11px] text-gray-700">—</p>
           </button>
 

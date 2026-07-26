@@ -1,5 +1,6 @@
-const { app, BrowserWindow, shell } = require('electron')
+const { app, BrowserWindow, shell, dialog } = require('electron')
 const path = require('path')
+const { autoUpdater } = require('electron-updater')
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -34,8 +35,48 @@ function createWindow() {
   }
 }
 
+// Updates are checked once at launch and applied only when the user says so.
+// The app is unsigned, so Windows SmartScreen still warns on the downloaded
+// installer — auto-update removes the "go and find the new release" step, not
+// the warning.
+function setUpAutoUpdates() {
+  if (!app.isPackaged) return
+
+  autoUpdater.autoDownload = false
+  autoUpdater.on('update-available', async ({ version }) => {
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      buttons: ['Download', 'Not now'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update available',
+      message: `ListenWell ${version} is available.`,
+      detail: 'Download it now? The update installs when you next quit.',
+    })
+    if (response === 0) autoUpdater.downloadUpdate()
+  })
+
+  autoUpdater.on('update-downloaded', async ({ version }) => {
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      buttons: ['Restart now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Update ready',
+      message: `ListenWell ${version} is ready to install.`,
+    })
+    if (response === 0) autoUpdater.quitAndInstall()
+  })
+
+  // A failed check is not worth interrupting anyone over.
+  autoUpdater.on('error', (err) => console.error('Update check failed:', err?.message))
+
+  autoUpdater.checkForUpdates().catch(() => {})
+}
+
 app.whenReady().then(() => {
   createWindow()
+  setUpAutoUpdates()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

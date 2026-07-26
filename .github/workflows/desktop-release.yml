@@ -1,15 +1,15 @@
-# Builds the ListenWell Windows desktop app (Electron).
+# Builds the ListenWell desktop app (Electron) for Windows, macOS and Linux.
 #
 # Runs on every push of a tag like v0.1.0, or manually from the Actions tab
-# (workflow_dispatch). The installer is always uploaded as a workflow
-# artifact; tag builds also get a GitHub Release with the installer attached.
+# (workflow_dispatch). Installers are always uploaded as workflow artifacts;
+# tag builds also get a GitHub Release with them attached.
 #
-# Supabase config: the committed .env provides VITE_SUPABASE_URL and
-# VITE_SUPABASE_ANON_KEY at build time. If .env is ever removed from the
-# repo, add those two values as repository secrets and export them as env
-# vars on the "Build web assets" step instead.
+# Supabase config: `.env` is no longer committed, so VITE_SUPABASE_URL and
+# VITE_SUPABASE_ANON_KEY must exist as repository secrets. Both values ship in
+# the client bundle and are publishable rather than secret — but without them
+# the packaged app cannot reach the backend at all.
 
-name: Desktop release (Windows)
+name: Desktop release
 
 on:
   push:
@@ -21,8 +21,32 @@ permissions:
   contents: write
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      # One platform failing shouldn't discard the installers that did build.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            artifact: ListenWell-windows
+            files: |
+              release/*.exe
+          - os: macos-latest
+            platform: mac
+            artifact: ListenWell-macos
+            files: |
+              release/*.dmg
+              release/*.zip
+          - os: ubuntu-latest
+            platform: linux
+            artifact: ListenWell-linux
+            files: |
+              release/*.AppImage
+              release/*.deb
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -36,20 +60,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run tests
+        run: npm test
+
       - name: Build web assets
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
-      - name: Package Windows installer
-        run: npx electron-builder --win --publish never
+      - name: Package installer
+        # --publish never keeps electron-builder from uploading; the release
+        # step below owns that, so a failed upload can't half-publish a build.
+        run: npx electron-builder --${{ matrix.platform }} --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ListenWell-windows-installer
-          path: release/*.exe
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
 
-      - name: Attach installer to GitHub Release
+      - name: Attach installers to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*.exe
+          files: ${{ matrix.files }}

@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import SmartPlaylistRules from '@/components/SmartPlaylistRules'
 
 // Downscale a picked image to a compact data URL so the cover survives a
 // refresh and syncs across devices. A blob: object URL dies on reload.
@@ -43,7 +44,7 @@ const fileToCoverDataUrl = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
-function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex, onPlaySong, onRemove }) {
+function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex, onPlaySong, onRemove, sortable = true }) {
   const {
     attributes,
     listeners,
@@ -51,7 +52,8 @@ function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: song.id })
+    // A smart playlist's order comes from its rules, so dragging is meaningless.
+  } = useSortable({ id: song.id, disabled: !sortable })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -70,13 +72,15 @@ function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex
         isDragging ? 'bg-white/[0.08] shadow-xl' : active ? 'bg-violet-500/10' : 'hover:bg-white/[0.04]'
       }`}
     >
-      <div
-        {...attributes}
-        {...listeners}
-        className="text-gray-600 hover:text-gray-300 cursor-grab active:cursor-grabbing shrink-0 touch-none p-2 -m-1"
-      >
-        <GripVertical className="w-4 h-4" />
-      </div>
+      {sortable && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="text-gray-600 hover:text-gray-300 cursor-grab active:cursor-grabbing shrink-0 touch-none p-2 -m-1"
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+      )}
 
       <span className="w-5 shrink-0 flex items-center justify-end text-[11px] tabular-nums">
         {active ? (
@@ -112,13 +116,16 @@ function SortableTrackRow({ song, index, isPlaying, currentTrackIndex, songIndex
         >
           <Play className="w-3.5 h-3.5 ml-0.5" fill="currentColor" />
         </button>
-        <button
-          type="button"
-          onClick={() => onRemove(song.id)}
-          className="w-7 h-7 rounded-full border border-white/15 flex items-center justify-center text-gray-500 hover:text-red-400 hover:border-red-400/40 transition-colors"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={() => onRemove(song.id)}
+            aria-label="Remove from playlist"
+            className="w-7 h-7 rounded-full border border-white/15 flex items-center justify-center text-gray-500 hover:text-red-400 hover:border-red-400/40 transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -131,10 +138,14 @@ function PlaylistDetailScreen({
   onPlaySong,
   onToggleSongInPlaylist,
   onUpdatePlaylist,
+  onChangeSmartDefinition,
   currentTrackIndex,
   isPlaying,
   accentPresets = [],
 }) {
+  // A smart playlist's contents come from its rules, so the manual
+  // add/remove/reorder affordances don't apply to it.
+  const isSmart = Boolean(playlist?.smart)
   const [addSearch, setAddSearch] = useState('')
   const [showEdit, setShowEdit] = useState(false)
   const [editName, setEditName] = useState('')
@@ -169,6 +180,7 @@ function PlaylistDetailScreen({
     })
 
   const handleDragEnd = ({ active, over }) => {
+    if (isSmart) return
     if (!over || active.id === over.id) return
     const oldIndex = playlist.songIds.indexOf(active.id)
     const newIndex = playlist.songIds.indexOf(over.id)
@@ -183,6 +195,7 @@ function PlaylistDetailScreen({
         <button
           type="button"
           onClick={onBack}
+          aria-label="Back to playlists"
           className="p-2 rounded-full border border-white/15 text-gray-400 hover:text-white hover:border-white/40 transition-colors shrink-0"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -264,6 +277,16 @@ function PlaylistDetailScreen({
         </div>
       </div>
 
+      {isSmart && (
+        <div className="shrink-0">
+          <SmartPlaylistRules
+            definition={playlist.smart}
+            onChange={onChangeSmartDefinition}
+            matchCount={playlistSongs.length}
+          />
+        </div>
+      )}
+
       {/* Body: track list + add panel */}
       <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
         {/* Track list */}
@@ -276,7 +299,9 @@ function PlaylistDetailScreen({
               <div className="flex flex-col items-center justify-center h-full gap-3 py-16 text-center">
                 <Music2 className="w-9 h-9 text-gray-700" />
                 <p className="text-sm text-gray-500">No songs yet.</p>
-                <p className="text-xs text-gray-600">Add songs from the Add Songs panel.</p>
+                <p className="text-xs text-gray-600">
+                  {isSmart ? 'No songs match these rules.' : 'Add songs from the Add Songs panel.'}
+                </p>
               </div>
             ) : (
               <DndContext
@@ -296,7 +321,8 @@ function PlaylistDetailScreen({
                         currentTrackIndex={currentTrackIndex}
                         songIndex={songIndex}
                         onPlaySong={onPlaySong}
-                        onRemove={onToggleSongInPlaylist}
+                        onRemove={isSmart ? undefined : onToggleSongInPlaylist}
+                        sortable={!isSmart}
                       />
                     )
                   })}
@@ -306,8 +332,8 @@ function PlaylistDetailScreen({
           </div>
         </div>
 
-        {/* Add songs panel */}
-        <div className="w-full max-h-[40%] lg:max-h-none lg:w-80 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex flex-col overflow-hidden glass-card shrink-0">
+        {/* Add songs panel — a smart playlist is populated by its rules instead */}
+        <div className={`w-full max-h-[40%] lg:max-h-none lg:w-80 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex-col overflow-hidden glass-card shrink-0 ${isSmart ? 'hidden' : 'flex'}`}>
           <div className="px-4 py-3 border-b border-white/[0.06] shrink-0 space-y-2">
             <p className="text-sm font-semibold text-gray-200">Add songs</p>
             <div className="relative">

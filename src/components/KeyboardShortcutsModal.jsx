@@ -4,12 +4,21 @@ import { motion } from 'framer-motion'
 import { Keyboard } from 'lucide-react'
 
 const SHORTCUTS = [
+  { key: 'Ctrl K', desc: 'Command palette' },
   { key: 'Space', desc: 'Play / Pause' },
   { key: '←', desc: 'Previous track' },
   { key: '→', desc: 'Next track' },
+  { key: 'Shift ←', desc: 'Back 10 seconds' },
+  { key: 'Shift →', desc: 'Forward 10 seconds' },
+  { key: '↑', desc: 'Volume up' },
+  { key: '↓', desc: 'Volume down' },
+  { key: 'M', desc: 'Mute / unmute' },
+  { key: 'S', desc: 'Toggle shuffle' },
+  { key: 'R', desc: 'Cycle repeat' },
+  { key: 'F', desc: 'Love current track' },
   { key: '/', desc: 'Focus search (Songs page)' },
   { key: '?', desc: 'Show / hide shortcuts' },
-  { key: 'Esc', desc: 'Clear search / close panels' },
+  { key: 'Esc', desc: 'Close panels' },
 ]
 
 function KeyboardShortcutsModal({ onClose }) {

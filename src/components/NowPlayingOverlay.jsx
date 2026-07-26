@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { motion } from 'framer-motion'
+import WaveformSeek from '@/components/WaveformSeek'
 import {
   Music2, X, Shuffle, SkipBack, SkipForward, Play, Pause,
   Repeat, Repeat1, Heart, Volume2, MicVocal, SlidersHorizontal,
@@ -42,12 +43,12 @@ function NowPlayingOverlay({
   lovedSongIds,
   lyrics = '',
   playlists = [],
-  onMetadataChange,
   onClose,
   onPlayPause,
   onPrev,
   onNext,
   onSeek,
+  onSeekTo,
   onVolumeChange,
   onToggleShuffle,
   onToggleRepeat,
@@ -111,6 +112,7 @@ function NowPlayingOverlay({
       <button
         type="button"
         onClick={onClose}
+        aria-label="Close now playing"
         className="absolute top-[calc(env(safe-area-inset-top)+1.25rem)] right-5 z-10 w-10 h-10 rounded-full border border-white/15 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/40 transition-colors bg-white/[0.05]"
       >
         <X className="w-5 h-5" />
@@ -186,15 +188,13 @@ function NowPlayingOverlay({
 
           {/* Seek bar */}
           <div className="w-full flex flex-col gap-1.5">
-            <input
-              type="range"
-              min={0}
-              max={duration || 0}
-              step={0.05}
-              value={Math.min(currentTime, duration || 0)}
-              onInput={onSeek}
-              onChange={onSeek}
-              className="w-full h-1.5 rounded-full appearance-none bg-white/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+            <WaveformSeek
+              peaks={song?.peaks}
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={onSeekTo}
+              height={56}
+              className="w-full"
             />
             <div className="flex justify-between text-xs text-gray-600 tabular-nums">
               <span>{formatTime(currentTime)}</span>
@@ -215,6 +215,7 @@ function NowPlayingOverlay({
             <button
               type="button"
               onClick={onPrev}
+              aria-label="Previous track"
               className="text-gray-300 hover:text-white transition-colors"
             >
               <SkipBack className="w-7 h-7" />
@@ -222,6 +223,7 @@ function NowPlayingOverlay({
             <button
               type="button"
               onClick={onPlayPause}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
               className="w-16 h-16 rounded-full bg-white text-black flex items-center justify-center shadow-lg hover:scale-105 transition-transform"
             >
               {isPlaying
@@ -232,6 +234,7 @@ function NowPlayingOverlay({
             <button
               type="button"
               onClick={onNext}
+              aria-label="Next track"
               className="text-gray-300 hover:text-white transition-colors"
             >
               <SkipForward className="w-7 h-7" />
@@ -344,6 +347,7 @@ function NowPlayingOverlay({
             <button
               type="button"
               onClick={onPlayPause}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
               className="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center shrink-0 hover:scale-105 transition-transform"
             >
               {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
@@ -393,15 +397,13 @@ function NowPlayingOverlay({
           {/* Mini seek bar pinned to bottom */}
           <div className="absolute bottom-6 left-6 right-6 flex items-center gap-3">
             <span className="text-xs text-gray-600 tabular-nums w-10 text-right shrink-0">{formatTime(currentTime)}</span>
-            <input
-              type="range"
-              min={0}
-              max={duration || 0}
-              step={0.05}
-              value={Math.min(currentTime, duration || 0)}
-              onInput={onSeek}
-              onChange={onSeek}
-              className="flex-1 h-1 rounded-full appearance-none bg-white/15 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+            <WaveformSeek
+              peaks={song?.peaks}
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={onSeekTo}
+              height={24}
+              className="flex-1"
             />
             <span className="text-xs text-gray-600 tabular-nums w-10 shrink-0">{formatTime(duration)}</span>
           </div>
