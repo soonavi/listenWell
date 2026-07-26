@@ -30,6 +30,7 @@ function QueuePanel({ songs, currentTrackIndex, onClose, onPlaySong }) {
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close queue"
             className="w-7 h-7 rounded-full border border-white/15 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/40 transition-colors"
           >
             <X className="w-3.5 h-3.5" />

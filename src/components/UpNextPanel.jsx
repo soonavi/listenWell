@@ -75,6 +75,7 @@ function SortableQueueItem({ id, song, idx, onPlay, onRemove, onEditMetadata }) 
         <button
           type="button"
           onClick={onPlay}
+          aria-label={`Play ${song.title || song.fileName}`}
           className="w-9 h-9 rounded-md overflow-hidden bg-white/[0.05] flex items-center justify-center shrink-0 hover:ring-1 hover:ring-violet-400/40 transition-all"
         >
           {song.coverUrl

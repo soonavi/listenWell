@@ -264,7 +264,7 @@ export default function AuthScreen({ onAuth, recovery = false }) {
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-200 transition-colors"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-gray-400 hover:text-gray-200 transition-colors"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -287,12 +287,13 @@ export default function AuthScreen({ onAuth, recovery = false }) {
             )}
           </div>
 
-          {/* Forgot password link (login only) */}
+          {/* Forgot password link (login only) — padded for a touch-sized
+              target, with the top margin pulled back so it sits where it did. */}
           {mode === 'login' && (
             <button
               type="button"
               onClick={() => goToMode('forgot')}
-              className="-mt-2 self-end text-sm text-violet-300 hover:text-violet-200 transition-colors"
+              className="-mt-4 self-end py-2 text-sm text-violet-300 hover:text-violet-200 transition-colors"
             >
               Forgot password?
             </button>

@@ -1,5 +1,6 @@
 "use client";;
 import { useState, useRef, useEffect, useCallback } from "react";
+// eslint-disable-next-line no-unused-vars
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 
@@ -35,10 +36,12 @@ export function GooeyInput({
   defaultValue = "",
   onValueChange,
   onOpenChange,
+  // Changing number: each new value expands the field and focuses it. Lets a
+  // global shortcut reach in without the parent holding a ref.
+  focusSignal = 0,
   disabled = false
 }) {
   const inputRef = useRef(null);
-  const prevExpandedRef = useRef(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
 
@@ -54,17 +57,24 @@ export function GooeyInput({
 
   const setExpanded = useCallback((next) => {
     setIsExpanded(next);
+    // Collapsing discards the query. Doing it here rather than in an effect
+    // keeps it a single render instead of a state update cascading off one.
+    if (!next) setSearchText("");
     onOpenChange?.(next);
-  }, [onOpenChange]);
+  }, [onOpenChange, setSearchText]);
 
   useEffect(() => {
-    if (isExpanded) {
-      inputRef.current?.focus();
-    } else if (prevExpandedRef.current) {
-      setSearchText("");
-    }
-    prevExpandedRef.current = isExpanded;
-  }, [isExpanded, setSearchText]);
+    if (isExpanded) inputRef.current?.focus();
+  }, [isExpanded]);
+
+  // Reacting to a changed prop by adjusting state during render — the pattern
+  // React prescribes over an effect, which would cost a second render pass.
+  // The effect above does the actual focusing once expansion lands.
+  const [handledFocusSignal, setHandledFocusSignal] = useState(focusSignal);
+  if (focusSignal !== handledFocusSignal) {
+    setHandledFocusSignal(focusSignal);
+    if (!disabled) setIsExpanded(true);
+  }
 
   const handleExpand = useCallback(() => {
     if (!disabled) setExpanded(true);

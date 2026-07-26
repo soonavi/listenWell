@@ -5,7 +5,9 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // `.agents` / `.claude` hold vendored third-party skill scripts, and `release`
+  // is electron-builder output — none of it is our source to lint.
+  globalIgnores(['dist', 'release', '.agents', '.claude']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
@@ -23,7 +25,17 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Capitalised names are components rendered in JSX (which the base rule
+      // can't see) and `_` marks a deliberate discard — both apply to
+      // destructured parameters too, not just plain variables.
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+  {
+    // Build config runs in Node, not the browser.
+    files: ['*.config.js'],
+    languageOptions: {
+      globals: globals.node,
     },
   },
 ])

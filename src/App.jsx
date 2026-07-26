@@ -2,6 +2,16 @@ import { supabase } from './lib/supabase'
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import './App.css'
 import { analyzeAudio } from './utils/audioAnalysis'
+import { hashAudioFile, findDuplicates, describeDuplicate } from './utils/duplicates'
+import { buildLibraryExport, parseLibraryExport, mergeLibraryImport } from './utils/libraryTransfer'
+import { selectSmartPlaylistSongs, createEmptyDefinition } from './utils/smartPlaylists'
+import { extractPeaksFromFile } from './utils/waveform'
+import { writeId3Tag, supportsId3 } from './utils/id3Writer'
+import {
+  listOfflineSongIds, saveSongOffline, removeSongOffline, offlineObjectUrl,
+  offlineUsageBytes, formatBytes,
+} from './utils/offlineCache'
+import WaveformSeek from './components/WaveformSeek'
 import UploadScreen from './components/UploadScreen'
 import SongsScreen from './components/SongsScreen' 
 import PlaylistsScreen from './components/PlaylistsScreen'
@@ -13,6 +23,9 @@ import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
 import AuthScreen from './components/AuthScreen'
 import LegalModal from './components/LegalModal'
 import Equalizer from './components/Equalizer'
+import ListeningLogScreen from './components/ListeningLogScreen'
+import CoverCropModal from './components/CoverCropModal'
+import CommandPalette from './components/CommandPalette'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -43,6 +56,7 @@ import {
   LayoutGrid,
   Shield,
   ScrollText,
+  BarChart3,
 } from 'lucide-react'
 
 // Custom equalizer bands (Hz). First band is a low shelf, last a high shelf.
@@ -71,15 +85,6 @@ function createSafeId(prefix = 'id') {
     return crypto.randomUUID()
   }
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`
-}
-
-function stableSongId(fileName) {
-  if (!fileName) return createSafeId('song')
-  let h = 5381
-  for (let i = 0; i < fileName.length; i++) {
-    h = (Math.imul(h, 31) + fileName.charCodeAt(i)) | 0
-  }
-  return `s${(h >>> 0).toString(36)}`
 }
 
 // Playlist accent colour presets (hex → space-separated RGB for CSS var)
@@ -231,6 +236,9 @@ async function readAudioTags(file) {
 
 // Signed URLs must outlive a listening session — 7 days
 const SIGNED_URL_TTL = 60 * 60 * 24 * 7
+// Keyboard scrub and volume increments.
+const SEEK_STEP_SECONDS = 10
+const VOLUME_STEP = 0.05
 
 // Per-account upload cap. Temporary while limits/monetization are decided.
 const MAX_UPLOADS = 50
@@ -245,7 +253,32 @@ function App() {
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [uploadNotice, setUploadNotice] = useState(null)
   const uploadNoticeTimerRef = useRef(null)
+  // { files, prescan, duplicates } while the listener decides what to do about
+  // files that already look present in the library.
+  const [duplicatePrompt, setDuplicatePrompt] = useState(null)
+  // Incremented by the `/` shortcut; SongsScreen watches it to focus search.
+  const [searchFocusSignal, setSearchFocusSignal] = useState(0)
+  // { songIds, artist, album } while the batch field editor is open. Blank
+  // fields are left alone rather than blanking the tracks.
+  const [batchEdit, setBatchEdit] = useState(null)
+  const [showCommandPalette, setShowCommandPalette] = useState(false)
+  // Track ids held in Cache Storage. Read once on mount from the cache itself,
+  // which is the authority — not from synced state, since what's downloaded is
+  // per-device rather than per-account.
+  const [offlineSongIds, setOfflineSongIds] = useState([])
+  const [offlineBusyIds, setOfflineBusyIds] = useState([])
+  const [offlineUsage, setOfflineUsage] = useState(0)
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
+  // { file, songId } while the cover cropper is open.
+  const [coverCrop, setCoverCrop] = useState(null)
+  const coverCropRef = useRef(null)
+  coverCropRef.current = coverCrop
   const [isUploading, setIsUploading] = useState(false)
+  // Per-file upload state: [{ id, name, status, error }]. A single spinner
+  // couldn't say which of twelve files failed, or let you retry just that one.
+  const [uploadQueue, setUploadQueue] = useState([])
+  // Queue id -> File, so a failed entry can be retried without re-picking it.
+  const uploadFilesRef = useRef(new Map())
   const [showMetadataModal, setShowMetadataModal] = useState(false)
   const [pendingEditSongId, setPendingEditSongId] = useState(null)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -303,7 +336,6 @@ function App() {
     const stored = parseStoredJSON('listenwell-custom-eq', null)
     return Array.isArray(stored) && stored.length === EQ_BANDS.length ? stored.map(Number) : EQ_BANDS.map(() => 0)
   })
-  const [showGeneralSettings, setShowGeneralSettings] = useState(false)
   const [audioOutputs, setAudioOutputs] = useState([])
   const [outputDeviceId, setOutputDeviceId] = useState(() => safeGetStorage('listenwell-output', 'default'))
   const [accentColor, setAccentColor] = useState('139 92 246')
@@ -349,7 +381,21 @@ function App() {
   const logoMenuRef = useRef(null)
   const nowPlayingMenuRef = useRef(null)
   const stateRef = useRef({})
-  const analyzeQueueRef = useRef([])
+  // Position to restore when the next src assignment is a re-signed URL for the
+  // track already playing, rather than a genuine track change.
+  const resumeAtRef = useRef(null)
+  // { id, tries } — caps re-sign attempts so a genuinely broken file doesn't loop.
+  const audioRecoveryRef = useRef({ id: null, tries: 0 })
+  // Level to restore when unmuting with `m`.
+  const premuteVolumeRef = useRef(1)
+  // handleDeleteSong is defined further down; batch delete reaches it by ref.
+  const handleDeleteSongRef = useRef(null)
+  // Read inside the offline toggle, which must see the current list without
+  // being re-created every time it changes.
+  const offlineSongIdsRef = useRef([])
+  // The window-level drop listener is installed once, so it reaches the
+  // current upload handler through a ref rather than a stale closure.
+  const processAudioFilesRef = useRef(null)
   const [crossfadeDuration, setCrossfadeDuration] = useState(() => Number(safeGetStorage('listenwell-crossfade', '300')))
   const [artColorExtract, setArtColorExtract] = useState(() => safeGetStorage('listenwell-art-color', 'false') === 'true')
   const [showUpNext, setShowUpNext] = useState(false)
@@ -429,6 +475,12 @@ function App() {
           fileName: track.storage_path.split('/').pop(),
           artist: track.artist || '',
           album: track.album || '',
+          // Kept so an expired signed URL can be re-minted without another
+          // round trip to the tracks table.
+          storagePath: track.storage_path,
+          contentHash: m.contentHash ?? null,
+          duration: typeof m.duration === 'number' ? m.duration : null,
+          peaks: Array.isArray(m.peaks) ? m.peaks : null,
           url: audioUrls?.[i]?.signedUrl || '',
           coverUrl: coverUrls?.[i]?.signedUrl || null,
           description: m.description || '',
@@ -456,6 +508,25 @@ function App() {
   const persistSongMeta = useCallback((id, patch) => {
     if (!id) return
     setSongMeta((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }))
+  }, [])
+
+  // Signed URLs are minted for SIGNED_URL_TTL and only refreshed on login, so a
+  // tab (or an installed PWA) left open past that window ends up holding dead
+  // URLs. Re-mint one on demand from the stored path.
+  const resignSong = useCallback(async (songId) => {
+    const song = stateRef.current.songs?.find((s) => s.id === songId)
+    if (!song?.storagePath) return null
+    const dir = song.storagePath.split('/').slice(0, -1).join('/')
+    const [{ data: audio }, { data: cover }] = await Promise.all([
+      supabase.storage.from('audio-files').createSignedUrl(song.storagePath, SIGNED_URL_TTL),
+      supabase.storage.from('audio-files').createSignedUrl(`${dir}/cover`, SIGNED_URL_TTL),
+    ])
+    const freshUrl = audio?.signedUrl
+    if (!freshUrl) return null
+    setSongs((prev) => prev.map((s) => (
+      s.id === songId ? { ...s, url: freshUrl, coverUrl: cover?.signedUrl || s.coverUrl } : s
+    )))
+    return freshUrl
   }, [])
 
   const markRecent = (type, id) => {
@@ -751,7 +822,34 @@ function App() {
     uploadNoticeTimerRef.current = window.setTimeout(() => setUploadNotice(null), 7000)
   }, [])
 
-  const processAudioFiles = useCallback(async (fileList) => {
+  // The element errors with no visible cause when a signed URL has expired.
+  // Re-mint once and resume where we were; a second failure is a real problem
+  // with the file, so surface it instead of retrying forever.
+  const handleAudioError = useCallback(async () => {
+    const audio = audioRef.current
+    const { songs: currentSongs, currentTrackIndex: idx } = stateRef.current
+    const song = idx == null ? null : currentSongs?.[idx]
+    if (!audio || !song) return
+    // An object-URL fallback song has nothing in storage to re-sign.
+    if (!song.storagePath) return
+
+    const attempts = audioRecoveryRef.current.id === song.id ? audioRecoveryRef.current.tries : 0
+    if (attempts >= 1) {
+      showUploadNotice('error', `"${song.title || song.fileName}" could not be loaded. Try refreshing.`)
+      return
+    }
+    audioRecoveryRef.current = { id: song.id, tries: attempts + 1 }
+
+    resumeAtRef.current = audio.currentTime || 0
+    const freshUrl = await resignSong(song.id)
+    if (!freshUrl) {
+      resumeAtRef.current = null
+      showUploadNotice('error', `"${song.title || song.fileName}" could not be loaded. Try refreshing.`)
+    }
+    // On success the src effect picks up the new URL and restores the position.
+  }, [resignSong, showUploadNotice])
+
+  const processAudioFiles = useCallback(async (fileList, options) => {
     // Use the authenticated user from state rather than awaiting
     // supabase.auth.getSession(): in Chrome that call can block indefinitely
     // on the auth Web Lock during a token refresh, hanging the whole upload
@@ -782,19 +880,69 @@ function App() {
     const audioFiles = allAudioFiles.slice(0, uploadCap - existingCount)
     const skippedForLimit = allAudioFiles.length - audioFiles.length
 
+    // Read tags and hash the bytes up front so duplicates are caught before
+    // anything is uploaded, and so the upload below doesn't re-read the tags.
+    // Reused on the second pass when the listener has already made a choice.
+    const prescan = options?.prescan ?? new Map(
+      await Promise.all(audioFiles.map(async (f) => {
+        const [tags, contentHash] = await Promise.all([
+          readAudioTags(f).catch(() => null),
+          hashAudioFile(f).catch(() => null),
+        ])
+        return [f, { tags, contentHash }]
+      })),
+    )
+
+    if (!options?.skipDuplicateCheck) {
+      const candidates = audioFiles.map((f) => {
+        const pre = prescan.get(f) || {}
+        return {
+          file: f,
+          title: pre.tags?.title || f.name.replace(/\.[^/.]+$/, ''),
+          artist: pre.tags?.artist || '',
+          contentHash: pre.contentHash,
+        }
+      })
+      const duplicates = findDuplicates(candidates, stateRef.current.songs || [])
+      if (duplicates.length > 0) {
+        // The listener decides — a better-bitrate re-rip is a legitimate
+        // re-upload, and the app shouldn't quietly discard files.
+        setDuplicatePrompt({ files: audioFiles, prescan, duplicates })
+        return
+      }
+    }
+
     setIsUploading(true)
+    const batchStamp = Date.now()
+    const queueEntries = audioFiles.map((f, i) => ({
+      id: `${batchStamp}-${i}`,
+      name: f.name,
+      status: 'uploading',
+      error: null,
+    }))
+    setUploadQueue(queueEntries)
+    uploadFilesRef.current = new Map(queueEntries.map((entry, i) => [entry.id, audioFiles[i]]))
+
+    const markQueue = (index, patch) => {
+      const entryId = queueEntries[index].id
+      setUploadQueue((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...patch } : entry)))
+    }
 
     const failures = []
     const newSongs = await Promise.all(
-      audioFiles.map(async (f) => {
+      audioFiles.map(async (f, fileIndex) => {
         const id = crypto.randomUUID()
         let tags = null
         let saveError = null
         let url = null
         let coverUrl = null
+        // Null when the upload failed and we fell back to an object URL —
+        // there is nothing in storage to re-sign in that case.
+        let savedStoragePath = null
+        const contentHash = prescan.get(f)?.contentHash ?? null
 
         try {
-          tags = await readAudioTags(f)
+          tags = prescan.get(f)?.tags ?? await readAudioTags(f)
 
           const sanitizedName = f.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
           const storagePath = `${currentUser.id}/${id}/${sanitizedName}`
@@ -840,9 +988,12 @@ function App() {
             .from('audio-files')
             .createSignedUrl(storagePath, SIGNED_URL_TTL)
           url = signedData?.signedUrl
+          savedStoragePath = storagePath
+          markQueue(fileIndex, { status: 'done' })
         } catch (err) {
           saveError = err?.message || 'Unknown error'
           failures.push({ name: f.name, reason: saveError })
+          markQueue(fileIndex, { status: 'failed', error: saveError })
           console.error(`Failed to save "${f.name}":`, saveError)
         }
 
@@ -862,6 +1013,8 @@ function App() {
           fileName: f.name,
           artist: tags?.artist || '',
           album: tags?.album || '',
+          storagePath: savedStoragePath,
+          contentHash,
           gainDb: 0,
           bpm: null,
           url,
@@ -884,6 +1037,9 @@ function App() {
     }
 
     setIsUploading(false)
+    // Successful entries have served their purpose; failures stay on screen
+    // with a retry until they're dealt with.
+    setUploadQueue((prev) => prev.filter((entry) => entry.status === 'failed'))
 
     setSongs((prev) => {
       const existingIds = new Set(prev.map((s) => s.id))
@@ -901,12 +1057,27 @@ function App() {
     // how the songs array settles after the async upload.
     if (newSongs.length > 0) setPendingEditSongId(newSongs[0].id)
 
+    // Remember each file's hash so duplicate detection still works after a
+    // reload, when the library comes back from the tracks table rather than
+    // from the files themselves.
+    for (const song of newSongs) {
+      if (song.contentHash) persistSongMeta(song.id, { contentHash: song.contentHash })
+    }
+
     for (const song of newSongs) {
       const f = song._file
       if (!f) continue
       analyzeAudio(f).then(({ gainDb, bpm }) => {
         setSongs((prev) => prev.map((s) => s.id === song.id ? { ...s, gainDb, bpm } : s))
         persistSongMeta(song.id, { gainDb, bpm })
+      }).catch(() => {})
+
+      // Waveform for the seek bar. Cached because decoding is far too
+      // expensive to repeat, and optional — a failure just leaves a flat bar.
+      extractPeaksFromFile(f).then((peaks) => {
+        if (!peaks) return
+        setSongs((prev) => prev.map((s) => s.id === song.id ? { ...s, peaks } : s))
+        persistSongMeta(song.id, { peaks })
       }).catch(() => {})
     }
   }, [showUploadNotice, user, persistSongMeta])
@@ -916,9 +1087,33 @@ function App() {
     if (e?.target) e.target.value = ''
   }
 
+  // 'skip' uploads only the files that weren't flagged; 'all' uploads
+  // everything anyway (a higher-bitrate re-rip is a legitimate re-upload).
+  const resolveDuplicatePrompt = useCallback((choice) => {
+    const prompt = duplicatePrompt
+    setDuplicatePrompt(null)
+    if (!prompt || choice === 'cancel') return
+
+    const flagged = new Set(prompt.duplicates.map((d) => d.candidate.file))
+    const files = choice === 'skip'
+      ? prompt.files.filter((f) => !flagged.has(f))
+      : prompt.files
+
+    if (files.length === 0) {
+      showUploadNotice('success', 'Nothing to upload — every selected file is already in your library.')
+      return
+    }
+    processAudioFiles(files, { prescan: prompt.prescan, skipDuplicateCheck: true })
+  }, [duplicatePrompt, processAudioFiles, showUploadNotice])
+
   const handleDeleteSong = (songId) => {
     const idx = songs.findIndex((s) => s.id === songId)
     if (idx === -1) return
+    // Don't leave the audio sitting in the device cache for a song that no
+    // longer exists.
+    if (offlineSongIdsRef.current.includes(songId)) {
+      removeSongOffline(songId).then(refreshOfflineState)
+    }
     if (currentTrackIndex === idx) {
       audioRef.current?.pause()
       setIsPlaying(false)
@@ -991,6 +1186,12 @@ function App() {
 
   const handleAddToQueue = useCallback((songId) => {
     setSongQueue((prev) => [...prev, songId])
+  }, [])
+
+  // "Play next" jumps the queue instead of joining the back of it. Any existing
+  // copy is pulled out first so the song lands in exactly one place.
+  const handlePlayNext = useCallback((songId) => {
+    setSongQueue((prev) => [songId, ...prev.filter((id) => id !== songId)])
   }, [])
 
   const handleRemoveFromManualQueue = useCallback((idx) => {
@@ -1069,8 +1270,61 @@ function App() {
     setSelectedSongIndex((prev) => (typeof prev === 'number' ? prev + 1 : prev))
   }, [])
 
-  const currentTrackUrl = songs[currentTrackIndex]?.url ?? null
+  // A locally cached copy wins over the network URL, which is what makes
+  // offline playback work and also spares the bandwidth when it's online.
+  const currentTrackUrl = offlineTrackUrl ?? songs[currentTrackIndex]?.url ?? null
   const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
+
+  // Resolve the cached copy for whatever is playing. Only one object URL is
+  // alive at a time; holding one per offline track would leak memory across a
+  // long session.
+  const [offlineTrackUrl, setOfflineTrackUrl] = useState(null)
+  const currentSongId = currentTrackIndex != null ? songs[currentTrackIndex]?.id : null
+  const currentSongIsOffline = currentSongId ? offlineSongIds.includes(currentSongId) : false
+  useEffect(() => {
+    let cancelled = false
+    let created = null
+    setOfflineTrackUrl(null)
+    if (currentSongId && currentSongIsOffline) {
+      offlineObjectUrl(currentSongId).then((url) => {
+        if (!url) return
+        if (cancelled) { URL.revokeObjectURL(url); return }
+        created = url
+        setOfflineTrackUrl(url)
+      })
+    }
+    return () => {
+      cancelled = true
+      if (created) URL.revokeObjectURL(created)
+    }
+  }, [currentSongId, currentSongIsOffline])
+
+  // Songs uploaded before waveforms existed have no cached peaks. Compute them
+  // for whatever is playing, once, in the background. The file is already in
+  // the HTTP cache from playback, so this is normally a cache read rather than
+  // a second download.
+  const nowPlayingId = nowPlaying?.id
+  const nowPlayingUrl = nowPlaying?.url
+  const nowPlayingHasPeaks = Boolean(nowPlaying?.peaks)
+  useEffect(() => {
+    if (!nowPlayingId || !nowPlayingUrl || nowPlayingHasPeaks) return
+    if (nowPlayingUrl.startsWith('blob:')) return
+    let cancelled = false
+    const run = async () => {
+      try {
+        const response = await fetch(nowPlayingUrl)
+        if (!response.ok) return
+        const peaks = await extractPeaksFromFile(await response.blob())
+        if (!peaks || cancelled) return
+        setSongs((prev) => prev.map((s) => (s.id === nowPlayingId ? { ...s, peaks } : s)))
+        persistSongMeta(nowPlayingId, { peaks })
+      } catch {
+        // A flat scrubber is an acceptable outcome; nothing to report.
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [nowPlayingId, nowPlayingUrl, nowPlayingHasPeaks, persistSongMeta])
   const effectivePlaybackRate = clampPlaybackRate(playbackRate)
 
   // Top listened songs for the profile leaderboard (resolved against the
@@ -1093,11 +1347,16 @@ function App() {
     crossfadeArmedRef.current = false
     hasCountedRef.current = false
     audio.src = currentTrackUrl
-    audio.currentTime = 0
+    // Normally a new src means a new track and position resets. A re-signed URL
+    // is the same track though, so honour a pending resume position instead of
+    // yanking the listener back to the start.
+    const resumeAt = resumeAtRef.current
+    resumeAtRef.current = null
+    audio.currentTime = resumeAt ?? 0
     // The 10fps ticker is the only currentTime writer now (the redundant
     // onTimeUpdate handler re-rendered the whole app on top of it); reset the
     // displayed position here so a paused track switch still shows 0:00.
-    setCurrentTime(0)
+    setCurrentTime(resumeAt ?? 0)
     // A new src resets playbackRate to 1; re-apply the user's speed and keep
     // pitch natural rather than chipmunked.
     audio.preservesPitch = true
@@ -1326,6 +1585,235 @@ function App() {
     songsBgBlur,
   })
 
+  // Writes only the fields that were filled in, to both local state and the
+  // tracks table, so a mis-tagged album can be fixed in one pass.
+  const applyBatchEdit = useCallback(async () => {
+    const pending = batchEdit
+    setBatchEdit(null)
+    if (!pending) return
+
+    const patch = {}
+    if (pending.artist.trim()) patch.artist = pending.artist.trim()
+    if (pending.album.trim()) patch.album = pending.album.trim()
+    if (Object.keys(patch).length === 0) return
+
+    setSongs((prev) => prev.map((s) => (pending.songIds.includes(s.id) ? { ...s, ...patch } : s)))
+
+    const { error } = await supabase.from('tracks').update(patch).in('id', pending.songIds)
+    if (error) {
+      showUploadNotice('error', `Saved locally, but the change didn't reach your library: ${error.message}`)
+      return
+    }
+    showUploadNotice('success', `Updated ${pending.songIds.length} track${pending.songIds.length === 1 ? '' : 's'}.`)
+  }, [batchEdit, showUploadNotice])
+
+  // Dropping a file anywhere in the window uploads it. Without this the
+  // browser (and Electron) treat a stray drop as "navigate to this file",
+  // which blanks the app — so the guard matters even where the drop is
+  // unwanted.
+  useEffect(() => {
+    const allow = (event) => {
+      if (!event.dataTransfer?.types?.includes('Files')) return
+      event.preventDefault()
+      setIsDraggingFiles(true)
+    }
+    const leave = (event) => {
+      // Only clear when the pointer actually leaves the window, not when it
+      // crosses between child elements.
+      if (event.relatedTarget === null) setIsDraggingFiles(false)
+    }
+    const drop = (event) => {
+      if (!event.dataTransfer?.types?.includes('Files')) return
+      event.preventDefault()
+      setIsDraggingFiles(false)
+      const files = Array.from(event.dataTransfer.files || [])
+      if (files.length > 0) processAudioFilesRef.current?.(files)
+    }
+    window.addEventListener('dragover', allow)
+    window.addEventListener('dragenter', allow)
+    window.addEventListener('dragleave', leave)
+    window.addEventListener('drop', drop)
+    return () => {
+      window.removeEventListener('dragover', allow)
+      window.removeEventListener('dragenter', allow)
+      window.removeEventListener('dragleave', leave)
+      window.removeEventListener('drop', drop)
+    }
+  }, [])
+
+  const refreshOfflineState = useCallback(async () => {
+    const [ids, usage] = await Promise.all([listOfflineSongIds(), offlineUsageBytes()])
+    setOfflineSongIds(ids)
+    setOfflineUsage(usage)
+  }, [])
+
+  useEffect(() => { refreshOfflineState() }, [refreshOfflineState])
+
+  // Explicit per-song opt-in. Nothing is cached without being asked for.
+  const handleToggleOffline = useCallback(async (songId) => {
+    const song = stateRef.current.songs?.find((s) => s.id === songId)
+    if (!song) return
+
+    setOfflineBusyIds((prev) => [...prev, songId])
+    try {
+      if (offlineSongIdsRef.current.includes(songId)) {
+        await removeSongOffline(songId)
+        showUploadNotice('success', `"${song.title || song.fileName}" removed from this device.`)
+      } else {
+        const result = await saveSongOffline(songId, song.url)
+        if (!result.ok) { showUploadNotice('error', result.error); return }
+        showUploadNotice('success', `"${song.title || song.fileName}" is available offline (${formatBytes(result.bytes)}).`)
+      }
+      await refreshOfflineState()
+    } finally {
+      setOfflineBusyIds((prev) => prev.filter((id) => id !== songId))
+    }
+  }, [refreshOfflineState, showUploadNotice])
+
+  // Downloading writes the edits you made here back into the file's tag, so
+  // your corrections leave with the audio instead of being stranded in the
+  // account. Non-MPEG containers are handed over untouched.
+  const handleDownloadSong = useCallback(async (songId) => {
+    const song = stateRef.current.songs?.find((s) => s.id === songId)
+    if (!song?.url) return
+
+    try {
+      const response = await fetch(song.url)
+      if (!response.ok) throw new Error(`status ${response.status}`)
+      let bytes = new Uint8Array(await response.arrayBuffer())
+
+      if (supportsId3(song.fileName)) {
+        let picture = null
+        if (song.coverUrl) {
+          try {
+            const coverResponse = await fetch(song.coverUrl)
+            if (coverResponse.ok) {
+              const blob = await coverResponse.blob()
+              picture = {
+                data: new Uint8Array(await blob.arrayBuffer()),
+                mimeType: blob.type || 'image/jpeg',
+              }
+            }
+          } catch {
+            // A missing cover shouldn't block the download.
+          }
+        }
+        bytes = writeId3Tag(bytes, {
+          title: song.title,
+          artist: song.artist,
+          album: song.album,
+          picture,
+        })
+      }
+
+      const blob = new Blob([bytes], { type: 'audio/mpeg' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = song.fileName || `${song.title || 'track'}.mp3`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      showUploadNotice('error', `Couldn't download "${song.title || song.fileName}": ${err.message}`)
+    }
+  }, [showUploadNotice])
+
+  const handleBatchAddToQueue = useCallback((songIds) => {
+    setSongQueue((prev) => [...prev, ...songIds.filter((id) => !prev.includes(id))])
+  }, [])
+
+  const handleBatchAddToPlaylist = useCallback((songIds, playlistId) => {
+    setPlaylists((prev) => prev.map((pl) => (
+      pl.id === playlistId
+        ? { ...pl, songIds: [...pl.songIds, ...songIds.filter((id) => !pl.songIds.includes(id))] }
+        : pl
+    )))
+  }, [])
+
+  // Deleting many at once goes through the same per-song path so storage, the
+  // tracks row and every playlist reference are cleaned up identically.
+  const handleBatchDelete = useCallback((songIds) => {
+    for (const id of songIds) handleDeleteSongRef.current?.(id)
+  }, [])
+
+  // A smart playlist stores rules, not a track list, so its contents are
+  // recomputed from the library. Everything downstream reads playlists through
+  // this, which means the rest of the app never has to know the difference.
+  const resolvedPlaylists = useMemo(() => playlists.map((pl) => (
+    pl.smart
+      ? { ...pl, songIds: selectSmartPlaylistSongs(songs, pl.smart, { lovedSongIds, playCounts }).map((s) => s.id) }
+      : pl
+  )), [playlists, songs, lovedSongIds, playCounts])
+
+  // Manual "add to playlist" menus must not offer rule-driven lists — you
+  // change what's in one by editing its rules.
+  const manualPlaylists = useMemo(() => resolvedPlaylists.filter((pl) => !pl.smart), [resolvedPlaylists])
+
+  const createSmartPlaylist = useCallback(() => {
+    const id = createSafeId('playlist')
+    setPlaylists((prev) => [
+      ...prev,
+      {
+        id,
+        name: `Smart playlist ${prev.filter((p) => p.smart).length + 1}`,
+        description: '',
+        coverUrl: null,
+        songIds: [],
+        smart: createEmptyDefinition(),
+      },
+    ])
+    setSelectedPlaylistId(id)
+    setActivePage('playlist-detail')
+  }, [])
+
+  const updateSmartDefinition = useCallback((playlistId, smart) => {
+    setPlaylists((prev) => prev.map((pl) => (pl.id === playlistId ? { ...pl, smart } : pl)))
+  }, [])
+
+  // Ownership means being able to walk away with your organisation, so the
+  // export is a plain readable JSON file rather than an opaque blob.
+  const handleExportLibrary = useCallback(() => {
+    const payload = buildLibraryExport({
+      songs, playlists, lovedSongIds, playCounts, songMeta, recentItems,
+      settings: buildSyncedState(),
+    })
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `listenwell-library-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    showUploadNotice('success', 'Library exported.')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [songs, playlists, lovedSongIds, playCounts, songMeta, recentItems, showUploadNotice])
+
+  const handleImportLibrary = useCallback(async (e) => {
+    const file = e.target?.files?.[0]
+    if (e?.target) e.target.value = ''
+    if (!file) return
+
+    const parsed = parseLibraryExport(await file.text())
+    if (!parsed.ok) { showUploadNotice('error', parsed.error); return }
+
+    const merged = mergeLibraryImport(
+      { songs, playlists, lovedSongIds, playCounts, songMeta },
+      parsed.data,
+      { makeId: () => createSafeId('playlist') },
+    )
+
+    setPlaylists(merged.playlists)
+    setLovedSongIds(merged.lovedSongIds)
+    setPlayCounts(merged.playCounts)
+    setSongMeta(merged.songMeta)
+
+    const { stats } = merged
+    const unmatched = stats.tracksUnmatched > 0
+      ? ` ${stats.tracksUnmatched} track${stats.tracksUnmatched > 1 ? 's' : ''} in the file aren't in this library — upload them and import again to reattach.`
+      : ''
+    showUploadNotice('success', `Imported: ${stats.playlistsAdded} playlist${stats.playlistsAdded === 1 ? '' : 's'} added, ${stats.playlistsMerged} merged.${unmatched}`)
+  }, [songs, playlists, lovedSongIds, playCounts, songMeta, showUploadNotice])
+
   useEffect(() => {
     userStateLoadedRef.current = false
     if (!user) return
@@ -1416,7 +1904,6 @@ function App() {
       })
       return changed ? next : prev
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songMeta])
 
   // Apply per-song gain normalisation whenever the track changes.
@@ -1795,9 +2282,31 @@ function App() {
   useEffect(() => {
     const onKeyDown = (e) => {
       const target = e.target
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return
+      const typing = target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || (target instanceof HTMLElement && target.isContentEditable)
 
-      const { isPlaying: playing, currentTrackIndex: trackIdx } = stateRef.current
+      // Ctrl/Cmd+K is the one chord we claim, and it works while typing so the
+      // palette is reachable from anywhere.
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setShowCommandPalette((prev) => !prev)
+        return
+      }
+
+      if (typing) return
+
+      const { isPlaying: playing, currentTrackIndex: trackIdx, songs: ss } = stateRef.current
+      // Leave browser and OS chords alone — Ctrl+R must still reload the page.
+      const chord = e.ctrlKey || e.metaKey || e.altKey
+
+      if (e.key === 'Escape') {
+        setShowKeyboardShortcuts(false)
+        setShowNowPlaying(false)
+        return
+      }
+
+      if (chord) return
 
       if (e.key === ' ') {
         if (trackIdx == null) return
@@ -1805,31 +2314,88 @@ function App() {
         const audio = audioRef.current
         if (playing) { audio?.pause(); setIsPlaying(false) }
         else { audio?.play().catch(() => {}); setIsPlaying(true) }
+        return
       }
 
       if (e.key === '?') {
         e.preventDefault()
         setShowKeyboardShortcuts((prev) => !prev)
+        return
       }
 
-      if (e.key === 'ArrowLeft' && trackIdx != null) {
+      if (e.key === '/') {
         e.preventDefault()
-        handlePrev()
+        setActivePage('songs')
+        // Bumping the counter is what SongsScreen watches to expand and focus
+        // its search field.
+        setSearchFocusSignal((n) => n + 1)
+        return
       }
 
-      if (e.key === 'ArrowRight' && trackIdx != null) {
+      // Shift widens the arrows from "change track" to "scrub within track".
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (trackIdx == null) return
         e.preventDefault()
-        handleNext()
+        const forward = e.key === 'ArrowRight'
+        if (e.shiftKey) {
+          const audio = audioRef.current
+          if (!audio || !Number.isFinite(audio.duration)) return
+          audio.currentTime = Math.min(
+            Math.max(audio.currentTime + (forward ? SEEK_STEP_SECONDS : -SEEK_STEP_SECONDS), 0),
+            audio.duration,
+          )
+          setCurrentTime(audio.currentTime)
+        } else {
+          // Via refs: these handlers close over `songs`, and this listener is
+          // installed once, so calling them directly would run against the
+          // empty library from the first render.
+          if (forward) handleNextRef.current?.()
+          else handlePrevRef.current?.()
+        }
+        return
       }
 
-      if (e.key === 'Escape') {
-        setShowKeyboardShortcuts(false)
-        setShowNowPlaying(false)
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault()
+        const delta = e.key === 'ArrowUp' ? VOLUME_STEP : -VOLUME_STEP
+        setVolume((prev) => Math.min(Math.max(prev + delta, 0), 1))
+        return
+      }
+
+      switch (e.key.toLowerCase()) {
+        case 'm': {
+          e.preventDefault()
+          // Remember the level so unmuting returns to it rather than to 100%.
+          setVolume((prev) => {
+            if (prev > 0) { premuteVolumeRef.current = prev; return 0 }
+            return premuteVolumeRef.current || 1
+          })
+          break
+        }
+        case 's':
+          e.preventDefault()
+          setShuffle((prev) => !prev)
+          break
+        case 'r':
+          e.preventDefault()
+          setRepeat((prev) => (prev === 'off' ? 'all' : prev === 'all' ? 'one' : 'off'))
+          break
+        case 'f': {
+          if (trackIdx == null) return
+          const song = ss?.[trackIdx]
+          if (!song) return
+          e.preventDefault()
+          setLovedSongIds((prev) => (
+            prev.includes(song.id) ? prev.filter((id) => id !== song.id) : [song.id, ...prev]
+          ))
+          break
+        }
+        default:
+          break
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handlePlayPause = () => {
@@ -1902,6 +2468,9 @@ function App() {
   // drive transport without capturing a stale closure.
   handleNextRef.current = handleNext
   handlePrevRef.current = handlePrev
+  handleDeleteSongRef.current = handleDeleteSong
+  offlineSongIdsRef.current = offlineSongIds
+  processAudioFilesRef.current = processAudioFiles
 
   const handleSeek = (e) => {
     const audio = audioRef.current
@@ -1911,6 +2480,14 @@ function App() {
     setCurrentTime(t)
   }
 
+  // WaveformSeek reports a time directly rather than an input event.
+  const seekToTime = useCallback((seconds) => {
+    const audio = audioRef.current
+    if (!audio || !Number.isFinite(seconds)) return
+    audio.currentTime = seconds
+    setCurrentTime(seconds)
+  }, [])
+
   const handleVolumeChange = (e) => setVolume(Number(e.target.value))
 
   const handleMetadataChange = (field, value) => {
@@ -1919,23 +2496,36 @@ function App() {
     )
   }
 
+  // Picking an image opens the cropper rather than committing straight away —
+  // covers are square, and letting the browser letterbox an arbitrary photo
+  // into that shape gives a worse result than choosing the crop yourself.
   const handleCoverUpload = (e) => {
     const file = e.target.files?.[0]
+    if (e?.target) e.target.value = ''
     if (!file) return
     const song = selectedSongIndex !== null ? songs[selectedSongIndex] : null
-    setSongs((prev) =>
-      prev.map((s, index) =>
-        index === selectedSongIndex ? { ...s, coverUrl: URL.createObjectURL(file) } : s,
-      ),
-    )
-    // Persist the cover to storage so it survives a refresh and other devices
-    if (song?.id && user) {
-      supabase.storage
-        .from('audio-files')
-        .upload(`${user.id}/${song.id}/cover`, file, { upsert: true, contentType: file.type || 'image/jpeg' })
-        .then(({ error }) => { if (error) console.error('Cover upload failed:', error.message) })
-    }
+    if (!song) return
+    setCoverCrop({ file, songId: song.id })
   }
+
+  const applyCoverCrop = useCallback(async (dataUrl) => {
+    const pending = coverCropRef.current
+    setCoverCrop(null)
+    if (!pending || !dataUrl) return
+
+    setSongs((prev) => prev.map((s) => (s.id === pending.songId ? { ...s, coverUrl: dataUrl } : s)))
+
+    if (!user) return
+    try {
+      const blob = await (await fetch(dataUrl)).blob()
+      const { error } = await supabase.storage
+        .from('audio-files')
+        .upload(`${user.id}/${pending.songId}/cover`, blob, { upsert: true, contentType: 'image/jpeg' })
+      if (error) throw error
+    } catch (err) {
+      showUploadNotice('error', `Cover saved for this session only: ${err.message}`)
+    }
+  }, [user, showUploadNotice])
 
   // Persist edited title/artist/album back to the tracks table
   const saveSongMetadata = useCallback(async (song) => {
@@ -2027,12 +2617,201 @@ function App() {
           {uploadNotice.message}
         </div>
       )}
-      {isUploading && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-[#0c0c0e]/70 backdrop-blur-sm" role="status" aria-live="polite">
-          <div className="flex flex-col items-center gap-4 px-8 py-7 rounded-2xl border border-white/10 bg-[#0c0c0e]/90 shadow-2xl">
-            <div className="w-10 h-10 rounded-full border-2 border-violet-500/30 border-t-violet-400 animate-spin" />
-            <p className="text-sm text-gray-200 font-medium">Uploading your music…</p>
-            <p className="text-xs text-gray-500">Saving to your library</p>
+      {showCommandPalette && (
+        <CommandPalette
+          onClose={() => setShowCommandPalette(false)}
+          songs={songs.map((song, index) => ({
+            ...song,
+            run: () => handlePlaySongClick(index),
+          }))}
+          playlists={resolvedPlaylists.map((playlist) => ({
+            ...playlist,
+            run: () => {
+              setSelectedPlaylistId(playlist.id)
+              setActivePage('playlist-detail')
+              markRecent('playlist', playlist.id)
+            },
+          }))}
+          actions={[
+            { id: 'play-pause', label: isPlaying ? 'Pause' : 'Play', hint: 'Playback', run: handlePlayPause },
+            { id: 'next', label: 'Next track', hint: 'Playback', run: () => handleNextRef.current?.() },
+            { id: 'prev', label: 'Previous track', hint: 'Playback', run: () => handlePrevRef.current?.() },
+            { id: 'shuffle', label: 'Toggle shuffle', hint: 'Playback', run: () => setShuffle((v) => !v) },
+            { id: 'repeat', label: 'Cycle repeat mode', hint: 'Playback', run: handleToggleRepeat },
+            { id: 'songs', label: 'Go to Songs', hint: 'Navigate', run: () => setActivePage('songs') },
+            { id: 'playlists', label: 'Go to Playlists', hint: 'Navigate', run: () => setActivePage('playlists') },
+            { id: 'upload', label: 'Go to Upload', hint: 'Navigate', run: () => setActivePage('upload') },
+            { id: 'log', label: 'Open listening log', hint: 'Navigate', run: () => setActivePage('log') },
+            { id: 'smart', label: 'New smart playlist', hint: 'Create', run: createSmartPlaylist },
+            { id: 'shortcuts', label: 'Keyboard shortcuts', hint: 'Help', run: () => setShowKeyboardShortcuts(true) },
+            { id: 'export', label: 'Export library', hint: 'Library', run: handleExportLibrary },
+          ]}
+        />
+      )}
+      {coverCrop && (
+        <CoverCropModal
+          file={coverCrop.file}
+          onCancel={() => setCoverCrop(null)}
+          onApply={applyCoverCrop}
+        />
+      )}
+      {batchEdit && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="batch-edit-title">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setBatchEdit(null)} />
+          <div className="relative w-full max-w-sm rounded-2xl border border-white/10 bg-[#0f1117]/95 shadow-2xl glass-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06]">
+              <h3 id="batch-edit-title" className="text-sm font-semibold text-white">
+                Edit {batchEdit.songIds.length} track{batchEdit.songIds.length === 1 ? '' : 's'}
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">Anything left blank stays as it is.</p>
+            </div>
+            <div className="px-5 py-4 flex flex-col gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-gray-400">Artist</span>
+                <input
+                  type="text"
+                  value={batchEdit.artist}
+                  onChange={(e) => setBatchEdit((prev) => ({ ...prev, artist: e.target.value }))}
+                  placeholder="Leave blank to keep"
+                  className="rounded-lg border border-white/15 bg-white/[0.05] px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-violet-500/60"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-gray-400">Album</span>
+                <input
+                  type="text"
+                  value={batchEdit.album}
+                  onChange={(e) => setBatchEdit((prev) => ({ ...prev, album: e.target.value }))}
+                  placeholder="Leave blank to keep"
+                  className="rounded-lg border border-white/15 bg-white/[0.05] px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-violet-500/60"
+                />
+              </label>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/[0.06]">
+              <button
+                type="button"
+                onClick={() => setBatchEdit(null)}
+                className="px-3.5 py-2 rounded-[10px] text-xs text-gray-300 border border-white/15 hover:border-white/40 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={applyBatchEdit}
+                className="px-3.5 py-2 rounded-[10px] text-xs font-medium bg-white text-black hover:bg-gray-100 transition-colors"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {duplicatePrompt && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="duplicate-prompt-title">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => resolveDuplicatePrompt('cancel')} />
+          <div className="relative w-full max-w-md rounded-2xl border border-white/10 bg-[#0f1117]/95 shadow-2xl glass-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06]">
+              <h3 id="duplicate-prompt-title" className="text-sm font-semibold text-white">
+                {duplicatePrompt.duplicates.length} of these look like duplicates
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">Already in your library. Your call.</p>
+            </div>
+            <ul className="max-h-56 overflow-y-auto px-5 py-3 space-y-2">
+              {duplicatePrompt.duplicates.map(({ candidate, reason }, i) => (
+                <li key={`${candidate.file.name}-${i}`} className="text-xs">
+                  <p className="text-gray-200 truncate">{candidate.title}</p>
+                  <p className="text-gray-500">{describeDuplicate(reason)}</p>
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-4 border-t border-white/[0.06]">
+              <button
+                type="button"
+                onClick={() => resolveDuplicatePrompt('cancel')}
+                className="px-3.5 py-2 rounded-[10px] text-xs text-gray-300 border border-white/15 hover:border-white/40 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveDuplicatePrompt('all')}
+                className="px-3.5 py-2 rounded-[10px] text-xs text-gray-300 border border-white/15 hover:border-white/40 transition-colors"
+              >
+                Upload anyway
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveDuplicatePrompt('skip')}
+                className="px-3.5 py-2 rounded-[10px] text-xs font-medium bg-white text-black hover:bg-gray-100 transition-colors"
+              >
+                Skip duplicates
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isDraggingFiles && (
+        <div className="fixed inset-0 z-[190] pointer-events-none flex items-center justify-center bg-[#0c0c0e]/70 backdrop-blur-sm">
+          <div className="px-8 py-6 rounded-2xl border-2 border-dashed border-violet-500/60 bg-[#0c0c0e]/90">
+            <p className="text-sm text-gray-200 font-medium">Drop to add to your library</p>
+          </div>
+        </div>
+      )}
+
+      {/* Upload queue. Stays on screen after the batch finishes if anything
+          failed, so a single bad file can be retried on its own instead of
+          re-picking the whole selection. */}
+      {uploadQueue.length > 0 && (
+        <div
+          className={`fixed z-[150] ${isUploading ? 'inset-0 flex items-center justify-center bg-[#0c0c0e]/70 backdrop-blur-sm' : 'bottom-6 right-6'}`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="w-[min(92vw,26rem)] rounded-2xl border border-white/10 bg-[#0c0c0e]/95 shadow-2xl overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-white/[0.06]">
+              {isUploading && <div className="w-4 h-4 rounded-full border-2 border-violet-500/30 border-t-violet-400 animate-spin shrink-0" />}
+              <p className="text-sm text-gray-200 font-medium">
+                {isUploading
+                  ? `Uploading ${uploadQueue.length} file${uploadQueue.length === 1 ? '' : 's'}…`
+                  : `${uploadQueue.length} upload${uploadQueue.length === 1 ? '' : 's'} failed`}
+              </p>
+              {!isUploading && (
+                <button
+                  type="button"
+                  onClick={() => setUploadQueue([])}
+                  aria-label="Dismiss"
+                  className="ml-auto w-7 h-7 rounded-full border border-white/15 flex items-center justify-center text-gray-400 hover:text-white hover:border-white/40 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <ul className="max-h-56 overflow-y-auto px-3 py-2 space-y-1">
+              {uploadQueue.map((entry) => (
+                <li key={entry.id} className="flex items-center gap-3 px-2 py-1.5 rounded-lg">
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs text-gray-200 truncate">{entry.name}</span>
+                    {entry.error && <span className="block text-[10px] text-red-300 truncate">{entry.error}</span>}
+                  </span>
+                  {entry.status === 'uploading' && <span className="text-[10px] text-gray-500 shrink-0">Uploading…</span>}
+                  {entry.status === 'done' && <span className="text-[10px] text-green-400 shrink-0">Saved</span>}
+                  {entry.status === 'failed' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const file = uploadFilesRef.current.get(entry.id)
+                        setUploadQueue((prev) => prev.filter((e) => e.id !== entry.id))
+                        if (file) processAudioFiles([file], { skipDuplicateCheck: true })
+                      }}
+                      className="shrink-0 px-2.5 py-1 rounded-lg text-[10px] text-gray-200 border border-white/15 hover:border-white/40 transition-colors"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       )}
@@ -2046,14 +2825,25 @@ function App() {
         onLoadedMetadata={() => {
           const a = audioRef.current
           if (!a) return
+          // Loaded cleanly, so let a future expiry on this same track recover too.
+          audioRecoveryRef.current = { id: null, tries: 0 }
           setDuration(a.duration ?? 0)
+          // Remember the length. Nothing else knows how long a track is until
+          // it has been loaded once, and the listening log needs it to total
+          // up time played.
+          const loaded = stateRef.current.songs?.[stateRef.current.currentTrackIndex]
+          if (loaded && Number.isFinite(a.duration) && loaded.duration !== a.duration) {
+            setSongs((prev) => prev.map((s) => (s.id === loaded.id ? { ...s, duration: a.duration } : s)))
+            persistSongMeta(loaded.id, { duration: a.duration })
+          }
           a.preservesPitch = true
           a.playbackRate = effectivePlaybackRate
         }}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
+        onError={() => { void handleAudioError() }}
         onEnded={() => {
-          const { repeat: rep, songs: ss, currentTrackIndex: cur } = stateRef.current
+          const { repeat: rep, songs: ss } = stateRef.current
           if (rep === 'one') {
             // Looping the same track is a fresh play: re-arm the count guard
             // and reset the fade gain, which an earlier crossfade may have left
@@ -2238,7 +3028,7 @@ function App() {
               <HomeScreen
                 displayName={displayName}
                 songs={songs}
-                playlists={playlists}
+                playlists={resolvedPlaylists}
                 lovedSongIds={lovedSongIds}
                 recentItems={recentItems}
                 currentTrackIndex={currentTrackIndex}
@@ -2273,6 +3063,28 @@ function App() {
             </motion.div>
           )}
 
+          {activePage === 'log' && (
+            <motion.div
+              key="log"
+              className="absolute inset-0 flex px-4 sm:px-8 py-4 sm:py-6"
+              variants={pageTransition}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            >
+              <ListeningLogScreen
+                songs={songs}
+                playCounts={playCounts}
+                onBack={() => setActivePage('library')}
+                onPlaySong={(songId) => {
+                  const index = songs.findIndex((s) => s.id === songId)
+                  if (index !== -1) handlePlaySongClick(index)
+                }}
+              />
+            </motion.div>
+          )}
+
           {activePage === 'library' && (
             <motion.div
               key="library"
@@ -2288,9 +3100,16 @@ function App() {
                 onMouseMove={handleParallaxMove}
                 onMouseLeave={handleParallaxLeave}
               >
-              <div className="mb-4">
+              <div className="mb-4 relative">
                 <h2 className="section-title text-base sm:text-lg text-white text-center">Recently played</h2>
                 <p className="text-xs text-gray-500 text-center">Songs and playlists you&apos;ve listened to most recently.</p>
+                <button
+                  type="button"
+                  onClick={() => setActivePage('log')}
+                  className="mt-2 sm:mt-0 sm:absolute sm:right-0 sm:top-0 mx-auto sm:mx-0 flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-[11px] text-gray-300 border border-white/15 hover:border-white/40 transition-colors"
+                >
+                  <BarChart3 className="w-3.5 h-3.5" /> Listening log
+                </button>
               </div>
               <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm px-4 sm:px-5 py-3 sm:py-4 overflow-y-auto">
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5">
@@ -2302,7 +3121,7 @@ function App() {
                         return { kind: 'song', key: `song-${song.id}`, song }
                       }
                       if (item.type === 'playlist') {
-                        const pl = playlists.find((p) => p.id === item.id)
+                        const pl = resolvedPlaylists.find((p) => p.id === item.id)
                         if (!pl) return null
                         return { kind: 'playlist', key: `pl-${pl.id}`, playlist: pl }
                       }
@@ -2389,19 +3208,6 @@ function App() {
                 onChangeSongFilter={setSongFilter}
                 onChangeSortBy={setSongSortBy}
                 onToggleLoved={toggleLovedSong}
-                onAddSongQuick={(songId) => {
-                  if (selectedPlaylistId) {
-                    setPlaylists((prev) =>
-                      prev.map((pl) =>
-                        pl.id === selectedPlaylistId && !pl.songIds.includes(songId)
-                          ? { ...pl, songIds: [...pl.songIds, songId] }
-                          : pl,
-                      ),
-                    )
-                  } else {
-                    createPlaylistWithSong(songId)
-                  }
-                }}
                 onSelectSong={handleSelectSong}
                 onEditSong={handleEditSongFromContext}
                 onPlaySongClick={handlePlaySongClick}
@@ -2411,6 +3217,16 @@ function App() {
                 onMetadataChange={handleMetadataChange}
                 onDeleteSong={handleDeleteSong}
                 onAddToQueue={handleAddToQueue}
+                onPlayNext={handlePlayNext}
+                onBatchAddToQueue={handleBatchAddToQueue}
+                onBatchAddToPlaylist={handleBatchAddToPlaylist}
+                onBatchDelete={handleBatchDelete}
+                onDownloadSong={handleDownloadSong}
+                onToggleOffline={handleToggleOffline}
+                offlineSongIds={offlineSongIds}
+                offlineBusyIds={offlineBusyIds}
+                onBatchEdit={(songIds) => setBatchEdit({ songIds, artist: '', album: '' })}
+                searchFocusSignal={searchFocusSignal}
                 onAddSongToPlaylist={(songId, playlistId) => {
                   setPlaylists((prev) =>
                     prev.map((pl) =>
@@ -2420,7 +3236,7 @@ function App() {
                     ),
                   )
                 }}
-                playlists={playlists}
+                playlists={manualPlaylists}
                 onParallaxMove={handleParallaxMove}
                 onParallaxLeave={handleParallaxLeave}
               />
@@ -2439,7 +3255,8 @@ function App() {
               transition={{ duration: 0.25, ease: 'easeOut' }}
             >
               <PlaylistsScreen
-                playlists={playlists}
+                playlists={resolvedPlaylists}
+                onCreateSmartPlaylist={createSmartPlaylist}
                 songs={songs}
                 selectedPlaylistId={selectedPlaylistId}
                 accentPresets={ACCENT_PRESETS}
@@ -2496,7 +3313,8 @@ function App() {
               transition={{ duration: 0.25, ease: 'easeOut' }}
             >
               <PlaylistDetailScreen
-                playlist={playlists.find((pl) => pl.id === selectedPlaylistId) || null}
+                playlist={resolvedPlaylists.find((pl) => pl.id === selectedPlaylistId) || null}
+                onChangeSmartDefinition={(smart) => updateSmartDefinition(selectedPlaylistId, smart)}
                 songs={songs}
                 currentTrackIndex={currentTrackIndex}
                 isPlaying={isPlaying}
@@ -3062,16 +3880,14 @@ function App() {
           </div>
           <div className="flex items-center gap-3 text-xs sm:text-sm text-gray-500 absolute left-0 right-0 -top-[5px] sm:static sm:w-full">
             <span className="hidden sm:block w-10 shrink-0 tabular-nums text-right">{formatTime(currentTime)}</span>
-            <input
-              type="range"
-              min={0}
-              max={duration || 0}
-              step={0.05}
-              value={Math.min(currentTime, duration || 0)}
-              onInput={handleSeek}
-              onChange={handleSeek}
-              aria-label="Seek"
-              className="flex-1 h-1 sm:h-2 rounded-full appearance-none bg-white/25 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 sm:[&::-webkit-slider-thumb]:w-3.5 sm:[&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+            <WaveformSeek
+              peaks={nowPlaying?.peaks}
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={seekToTime}
+              disabled={!nowPlaying}
+              height={28}
+              className="flex-1"
             />
             <span className="hidden sm:block w-10 shrink-0 tabular-nums">{formatTime(duration)}</span>
           </div>
@@ -3438,7 +4254,7 @@ function App() {
             repeat={repeat}
             lovedSongIds={lovedSongIds}
             lyrics={nowPlaying?.lyrics || ''}
-            playlists={playlists}
+            playlists={manualPlaylists}
             onToggleInPlaylist={(playlistId, songId) => {
               setPlaylists((prev) =>
                 prev.map((pl) =>
@@ -3468,15 +4284,12 @@ function App() {
               ))
               setShowSettings(true)
             }}
-            onMetadataChange={(field, value) => {
-              if (currentTrackIndex != null)
-                setSongs((prev) => prev.map((s, i) => i === currentTrackIndex ? { ...s, [field]: value } : s))
-            }}
             onClose={() => setShowNowPlaying(false)}
             onPlayPause={handlePlayPause}
             onPrev={handlePrev}
             onNext={handleNext}
             onSeek={handleSeek}
+            onSeekTo={seekToTime}
             onVolumeChange={handleVolumeChange}
             onToggleShuffle={() => setShuffle((prev) => !prev)}
             onToggleRepeat={handleToggleRepeat}
@@ -3504,7 +4317,7 @@ function App() {
               </div>
 
               <div className="flex gap-1 px-3 pt-3 shrink-0">
-                {['account', 'audio', 'appearance'].map((t) => (
+                {['account', 'audio', 'appearance', 'library'].map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -3622,6 +4435,61 @@ function App() {
                     <div className="flex flex-col gap-1.5">
                       <div className="flex justify-between"><span className="text-xs text-gray-300 font-medium">Blur amount</span><span className="text-xs text-gray-500 tabular-nums">{Math.round(blurAmount * 100)}%</span></div>
                       <input type="range" min={0} max={1} step={0.05} value={blurAmount} onChange={(e) => setBlurAmount(Number(e.target.value))} className="w-full h-1.5 rounded-full appearance-none bg-white/15 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer" />
+                    </div>
+                  </>
+                )}
+
+                {settingsModalTab === 'library' && (
+                  <>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-gray-300 font-medium">Offline</span>
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        {offlineSongIds.length === 0
+                          ? 'Nothing kept on this device yet. Right-click a song and choose “Keep offline” to store it here.'
+                          : `${offlineSongIds.length} track${offlineSongIds.length === 1 ? '' : 's'} on this device, using ${formatBytes(offlineUsage)}. Kept per device, not per account.`}
+                      </p>
+                      {offlineSongIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            for (const id of offlineSongIds) await removeSongOffline(id)
+                            await refreshOfflineState()
+                            showUploadNotice('success', 'Offline downloads cleared from this device.')
+                          }}
+                          className="self-start mt-1 px-3.5 py-2 rounded-[10px] text-xs text-gray-200 border border-white/15 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/40 transition-colors"
+                        >
+                          Clear downloads
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-gray-300 font-medium">Export</span>
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        Downloads your playlists, loved songs, play counts and per-song
+                        details as a readable JSON file. Audio files aren&apos;t included —
+                        they stay in your account.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleExportLibrary}
+                        className="self-start mt-1 px-3.5 py-2 rounded-[10px] text-xs text-gray-200 border border-white/15 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/40 transition-colors"
+                      >
+                        Export library
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-gray-300 font-medium">Import</span>
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        Merges an export into this library. Nothing is removed: playlists
+                        with the same name are combined, and play counts add together.
+                        Tracks are matched by title and artist, so upload your audio first.
+                      </p>
+                      <label className="self-start mt-1 px-3.5 py-2 rounded-[10px] text-xs text-gray-200 border border-white/15 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/40 transition-colors cursor-pointer">
+                        Choose export file
+                        <input type="file" accept="application/json,.json" className="hidden" onChange={handleImportLibrary} />
+                      </label>
                     </div>
                   </>
                 )}
