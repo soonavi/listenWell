@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useLayoutEffect, useRef, useState } from 'react'
 import {
   DndContext,
   closestCenter,
@@ -20,6 +20,7 @@ import { Music2, X, GripVertical, Pencil } from 'lucide-react'
 function SortableQueueItem({ id, song, idx, onPlay, onRemove, onEditMetadata }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const [ctxMenu, setCtxMenu] = useState(null)
+  const ctxRef = useRef(null)
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -30,10 +31,25 @@ function SortableQueueItem({ id, song, idx, onPlay, onRemove, onEditMetadata }) 
 
   const openCtx = (e) => {
     e.preventDefault()
-    const x = Math.min(e.clientX, window.innerWidth - 180)
-    const y = Math.min(e.clientY, window.innerHeight - 100)
-    setCtxMenu({ x, y })
+    setCtxMenu({ x: e.clientX, y: e.clientY })
   }
+
+  // Same measure-then-place pass as the songs grid: the old clamp guessed a
+  // 100px menu height against window.innerHeight, which is both too small for
+  // this three-item menu and blind to mobile browser chrome, so opening it low
+  // in the queue pushed the Remove item off the bottom of the screen.
+  useLayoutEffect(() => {
+    const el = ctxRef.current
+    if (!ctxMenu || !el) return
+    const vv = window.visualViewport
+    const vw = vv?.width ?? window.innerWidth
+    const vh = vv?.height ?? window.innerHeight
+    const margin = 8
+    const { width, height } = el.getBoundingClientRect()
+    el.style.left = `${Math.max(margin, Math.min(ctxMenu.x, vw - width - margin))}px`
+    el.style.top = `${Math.max(margin, Math.min(ctxMenu.y, vh - height - margin))}px`
+    el.style.visibility = 'visible'
+  }, [ctxMenu])
 
   return (
     <div ref={setNodeRef} style={style} className="relative">
@@ -98,8 +114,9 @@ function SortableQueueItem({ id, song, idx, onPlay, onRemove, onEditMetadata }) 
         <>
           <div className="fixed inset-0 z-[60]" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null) }} />
           <div
-            className="fixed z-[70] min-w-[170px] rounded-xl border border-white/12 bg-[#0e1016]/96 backdrop-blur-xl shadow-2xl py-1.5 overflow-hidden"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            ref={ctxRef}
+            className="fixed z-[70] min-w-[170px] max-w-[calc(100vw-1rem)] max-h-[70vh] overflow-y-auto overscroll-contain rounded-xl border border-white/12 bg-[#0e1016]/96 backdrop-blur-xl shadow-2xl py-1.5"
+            style={{ left: 0, top: 0, visibility: 'hidden' }}
           >
             <button
               type="button"

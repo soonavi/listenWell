@@ -265,7 +265,10 @@ function App() {
     return Number.isFinite(r) ? clampPlaybackRate(r) : 1
   })
   const [eqPreset, setEqPreset] = useState(() => safeGetStorage('listenwell-eqpreset', 'normal'))
-  const [activePage, setActivePage] = useState('upload')
+  // Land on Home, not Upload. Uploading is an occasional action; opening every
+  // session on it — which is what happened on phones, where there's no visible
+  // desktop nav to redirect from — buried the library behind an extra tap.
+  const [activePage, setActivePage] = useState('home')
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState('playback')
   const [playlists, setPlaylists] = useState(() => parseStoredJSON('listenwell-playlists', []))
@@ -361,8 +364,11 @@ function App() {
   // element, while a secondary <audio> plays the outgoing tail and fades OUT.
   const crossfadeAudioRef = useRef(null)
   const fadeGainRef = useRef(null)
+  // Handle to the in-flight tail fade-out so a new crossfade can cancel it
+  const tailFadeIntervalRef = useRef(null)
   const crossfadeArmedRef = useRef(false)
   const handleNextRef = useRef(null)
+  const handlePrevRef = useRef(null)
   // A play counts only once it passes the halfway mark; reset each new play.
   const hasCountedRef = useRef(false)
   // Per-song fields not stored in the tracks table (description, gainDb, bpm),
@@ -617,6 +623,15 @@ function App() {
     const outSrc = audio.currentSrc || audio.src
     if (tail && outSrc) {
       try {
+        // A rapid run of next/prev presses starts a new tail before the last
+        // one has finished. The previous interval kept its own handle to the
+        // shared element, so the fades fought over tail.volume and an expiring
+        // fade would pause/unload a tail that had only just started — audible
+        // as a dropout while skipping. Cancel the outgoing fade first.
+        if (tailFadeIntervalRef.current) {
+          clearInterval(tailFadeIntervalRef.current)
+          tailFadeIntervalRef.current = null
+        }
         tail.src = outSrc
         tail.currentTime = audio.currentTime
         tail.playbackRate = audio.playbackRate
@@ -630,11 +645,13 @@ function App() {
             tail.volume = Math.max(0, startVol * (1 - step / steps))
             if (step >= steps) {
               clearInterval(id)
+              if (tailFadeIntervalRef.current === id) tailFadeIntervalRef.current = null
               tail.pause()
               tail.removeAttribute('src')
               tail.load()
             }
           }, dur / steps)
+          tailFadeIntervalRef.current = id
         }).catch(() => {})
       } catch { /* ignore tail failures — main track still transitions */ }
     }
@@ -644,6 +661,22 @@ function App() {
     switchTrack()
     requestAnimationFrame(() => setFadeGain(1, dur))
   }, [crossfadeDuration, setFadeGain])
+
+  // Advancing to the index we're already on — a one-song library, repeat-all
+  // with a single track, or a manual-queue entry pointing at the current song —
+  // calls setCurrentTrackIndex() with an unchanged value. React bails out, so
+  // the [currentTrackIndex, currentTrackUrl] effect never re-runs, audio.src is
+  // never reassigned, and the element just sits at its ended state: silence.
+  // Restart it explicitly instead of relying on a state transition.
+  const restartCurrent = useCallback(() => {
+    const audio = audioRef.current
+    if (!audio) return
+    hasCountedRef.current = false
+    crossfadeArmedRef.current = false
+    setFadeGain(1, 0)
+    audio.currentTime = 0
+    audio.play().then(() => setIsPlaying(true)).catch(() => {})
+  }, [setFadeGain])
 
   const toggleLovedSong = (songId) => {
     setLovedSongIds((prev) =>
@@ -766,9 +799,16 @@ function App() {
           const sanitizedName = f.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
           const storagePath = `${currentUser.id}/${id}/${sanitizedName}`
 
+          // A track's bytes never change once written (the path is keyed on a
+          // fresh song id), so it can be cached hard. Supabase defaults to
+          // max-age=3600; past that hour every replay re-downloads the file,
+          // and the crossfade's tail element — which requests the same signed
+          // URL the main element is already streaming — opens a second network
+          // stream instead of reading from cache. On a phone that's the
+          // difference between a smooth transition and a stall.
           const { error: uploadError } = await supabase.storage
             .from('audio-files')
-            .upload(storagePath, f, { upsert: true })
+            .upload(storagePath, f, { upsert: true, cacheControl: '31536000' })
           if (uploadError) throw uploadError
 
           if (tags?.picture) {
@@ -1085,6 +1125,97 @@ function App() {
     if (audio) audio.playbackRate = effectivePlaybackRate
   }, [effectivePlaybackRate])
 
+  // Mobile browsers suspend the AudioContext when the tab is backgrounded, the
+  // screen locks, or another app grabs the audio session (a call, another
+  // player). Every track is routed through createMediaElementSource(), so a
+  // suspended context means silence even though the <audio> element still
+  // reports itself as playing — the element's clock keeps running and the seek
+  // bar keeps moving, which is exactly what "the audio just cuts out" looks
+  // like. Nothing resumed the context, so it stayed dead until a full reload.
+  useEffect(() => {
+    const resume = () => {
+      const ctx = audioContextRef.current
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {})
+    }
+    const onVisibility = () => { if (document.visibilityState === 'visible') resume() }
+    const audio = audioRef.current
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', resume)
+    window.addEventListener('focus', resume)
+    audio?.addEventListener('play', resume)
+    audio?.addEventListener('playing', resume)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', resume)
+      window.removeEventListener('focus', resume)
+      audio?.removeEventListener('play', resume)
+      audio?.removeEventListener('playing', resume)
+    }
+  }, [])
+
+  // OS media controls. Without a mediaSession the lock screen, notification
+  // shade, Bluetooth car stereo and headphone buttons show nothing and do
+  // nothing — on a phone that makes the player feel broken even when the audio
+  // itself is fine, because the moment the screen locks there's no way to skip
+  // or pause without reopening the app.
+  useEffect(() => {
+    const ms = navigator.mediaSession
+    if (!ms || typeof window.MediaMetadata !== 'function') return
+    if (!nowPlaying) { ms.metadata = null; return }
+    ms.metadata = new window.MediaMetadata({
+      title: nowPlaying.title || nowPlaying.fileName || 'Unknown title',
+      artist: nowPlaying.artist || 'Unknown artist',
+      album: nowPlaying.album || '',
+      artwork: nowPlaying.coverUrl
+        ? [{ src: nowPlaying.coverUrl, sizes: '512x512', type: 'image/jpeg' }]
+        : [],
+    })
+  }, [nowPlaying])
+
+  useEffect(() => {
+    const ms = navigator.mediaSession
+    if (!ms) return
+    ms.playbackState = isPlaying ? 'playing' : 'paused'
+  }, [isPlaying])
+
+  useEffect(() => {
+    const ms = navigator.mediaSession
+    if (!ms) return
+    const seekBy = (delta) => {
+      const a = audioRef.current
+      if (!a) return
+      const max = Number.isFinite(a.duration) ? a.duration : a.currentTime
+      a.currentTime = Math.min(max, Math.max(0, a.currentTime + delta))
+    }
+    const handlers = {
+      play: () => {
+        const a = audioRef.current
+        a?.play().then(() => setIsPlaying(true)).catch(() => {})
+      },
+      pause: () => {
+        const a = audioRef.current
+        if (a) { a.pause(); setIsPlaying(false) }
+      },
+      previoustrack: () => handlePrevRef.current?.(),
+      nexttrack: () => handleNextRef.current?.(),
+      seekbackward: (d) => seekBy(-(d?.seekOffset || 10)),
+      seekforward: (d) => seekBy(d?.seekOffset || 10),
+      seekto: (d) => {
+        const a = audioRef.current
+        if (a && typeof d?.seekTime === 'number') a.currentTime = d.seekTime
+      },
+    }
+    // Not every browser implements every action; an unsupported one throws.
+    for (const [action, fn] of Object.entries(handlers)) {
+      try { ms.setActionHandler(action, fn) } catch { /* unsupported */ }
+    }
+    return () => {
+      for (const action of Object.keys(handlers)) {
+        try { ms.setActionHandler(action, null) } catch { /* unsupported */ }
+      }
+    }
+  }, [])
+
   useEffect(() => {
     ensureAudioGraph()
     const ctx = audioContextRef.current
@@ -1279,7 +1410,7 @@ function App() {
         if (!m) return s
         const merged = { ...s }
         if (m.description && !s.description) { merged.description = m.description; changed = true }
-        if (typeof m.gainDb === 'number' && !s.gainDb) { merged.gainDb = m.gainDb; changed = true }
+        if (typeof m.gainDb === 'number' && typeof s.gainDb !== 'number') { merged.gainDb = m.gainDb; changed = true }
         if (m.bpm != null && s.bpm == null) { merged.bpm = m.bpm; changed = true }
         return merged
       })
@@ -1288,12 +1419,21 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [songMeta])
 
-  // Apply per-song gain normalisation whenever the track changes
+  // Apply per-song gain normalisation whenever the track changes.
+  //
+  // `song.gainDb` was read as a truthy check, so a legitimately-measured 0 dB
+  // was treated as "missing". More importantly the applied gain was clamped to
+  // [0.25, 4] — a 12 dB cut at the floor, which is drastic. Analysis lands
+  // asynchronously after an upload, so the first play ran ungained at full
+  // volume and every play after it was attenuated: the "quieter after the
+  // first time" symptom.
+  // Attenuation is now capped at roughly -6 dB so a late-arriving gainDb can
+  // never gut the level.
   useEffect(() => {
     if (!gainNodeRef.current) return
     const song = songs[currentTrackIndex]
-    const db = volumeNormalization && song?.gainDb ? song.gainDb : 0
-    gainNodeRef.current.gain.value = Math.min(4, Math.max(0.25, Math.pow(10, db / 20)))
+    const db = volumeNormalization && typeof song?.gainDb === 'number' ? song.gainDb : 0
+    gainNodeRef.current.gain.value = Math.min(2, Math.max(0.5, Math.pow(10, db / 20)))
   }, [currentTrackIndex, volumeNormalization, songs])
 
   // Extract dominant color from album art when artColorExtract is enabled
@@ -1711,6 +1851,7 @@ function App() {
       return
     }
     const next = currentTrackIndex === null ? 0 : (currentTrackIndex - 1 + songs.length) % songs.length
+    if (next === currentTrackIndex) { restartCurrent(); return }
     crossfade(() => {
       setCurrentTrackIndex(next)
       setSelectedSongIndex(next)
@@ -1730,6 +1871,7 @@ function App() {
       setSongQueue(rest)
       const idx = ss.findIndex((s) => s.id === nextId)
       if (idx !== -1) {
+        if (idx === cur) { restartCurrent(); return }
         crossfade(() => {
           setCurrentTrackIndex(idx)
           setSelectedSongIndex(idx)
@@ -1746,6 +1888,7 @@ function App() {
     } else {
       next = cur === null ? 0 : (cur + 1) % ss.length
     }
+    if (next === cur) { restartCurrent(); return }
     crossfade(() => {
       setCurrentTrackIndex(next)
       setSelectedSongIndex(next)
@@ -1755,9 +1898,10 @@ function App() {
     })
   }
 
-  // Keep a stable handle so the playback ticker can early-trigger crossfades
-  // without capturing a stale handleNext closure.
+  // Keep stable handles so the playback ticker and the OS media controls can
+  // drive transport without capturing a stale closure.
   handleNextRef.current = handleNext
+  handlePrevRef.current = handlePrev
 
   const handleSeek = (e) => {
     const audio = audioRef.current
@@ -1911,11 +2055,10 @@ function App() {
         onEnded={() => {
           const { repeat: rep, songs: ss, currentTrackIndex: cur } = stateRef.current
           if (rep === 'one') {
-            const audio = audioRef.current
-            // Looping the same track is a fresh play: re-arm the count guard.
-            hasCountedRef.current = false
-            crossfadeArmedRef.current = false
-            if (audio) { audio.currentTime = 0; audio.play().catch(() => {}) }
+            // Looping the same track is a fresh play: re-arm the count guard
+            // and reset the fade gain, which an earlier crossfade may have left
+            // part-way through a ramp.
+            restartCurrent()
           } else if (ss.length > 1 || rep === 'all') {
             handleNext()
           } else {
@@ -1923,8 +2066,11 @@ function App() {
           }
         }}
       />
-      {/* Secondary element: plays the outgoing track's tail during a crossfade */}
-      <audio ref={crossfadeAudioRef} crossOrigin="anonymous" />
+      {/* Secondary element: plays the outgoing track's tail during a crossfade.
+          preload="auto" lets it start from cache immediately rather than
+          negotiating a fresh stream at the exact moment the next track is
+          also buffering. */}
+      <audio ref={crossfadeAudioRef} crossOrigin="anonymous" preload="auto" />
 
       {/* Header */}
       {/* pt/h include the top safe area so the phone's status bar (time + battery)
@@ -1986,15 +2132,21 @@ function App() {
         </button>
 
         {/* Logo — right side of header */}
-        <div ref={logoMenuRef} className="shrink-0 relative mr-3">
+        <div ref={logoMenuRef} className="shrink-0 relative mr-0 sm:mr-3">
+          {/* The bordered pill is a desktop treatment. At 64px of mobile header
+              it wrapped a 32px mark in chrome that left almost no breathing
+              room above or below, so the logo read as a cramped button rather
+              than a brand mark. On mobile the frame drops away and the logo
+              itself is the target, with the chevron shrunk to a hint. */}
           <button
             type="button"
             onClick={() => setShowLogoMenu((prev) => !prev)}
-            className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5 rounded-full border border-white/15 hover:border-white/40 bg-white/[0.04] hover:bg-white/[0.08] transition"
+            className="flex items-center gap-1 sm:gap-3 px-1.5 sm:px-5 py-1.5 sm:py-2.5 rounded-full border border-transparent sm:border-white/15 sm:hover:border-white/40 bg-transparent sm:bg-white/[0.04] sm:hover:bg-white/[0.08] active:bg-white/[0.06] transition"
             aria-label="Menu"
+            aria-expanded={showLogoMenu}
           >
-            <img src="./logo.svg" alt="listenWell" className="w-8 h-8 sm:w-11 sm:h-11" />
-            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
+            <img src="./logo.svg" alt="listenWell" className="w-9 h-9 sm:w-11 sm:h-11" />
+            <ChevronDown className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-500 sm:text-gray-400 transition-transform ${showLogoMenu ? 'rotate-180' : ''}`} />
           </button>
           <AnimatePresence>
             {showLogoMenu && (
@@ -2003,7 +2155,9 @@ function App() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -8, scale: 0.97 }}
                 transition={{ duration: 0.15, ease: 'easeOut' }}
-                className="menu-panel absolute right-0 top-[calc(100%+0.5rem)] min-w-[290px] rounded-2xl border border-white/15 backdrop-blur-2xl p-2 flex flex-col gap-0.5 z-30"
+                /* Capped and scrollable so a long menu can't run past the
+                   bottom of a phone screen the way the song context menu did */
+                className="menu-panel absolute right-0 top-[calc(100%+0.5rem)] min-w-[290px] max-w-[calc(100vw-2rem)] max-h-[70vh] overflow-y-auto overscroll-contain rounded-2xl border border-white/15 backdrop-blur-2xl p-2 flex flex-col gap-0.5 z-30"
               >
                 <button
                   type="button"
@@ -2398,7 +2552,10 @@ function App() {
               }}
               onClick={() => { if (!miniBarDragRef.current) setShowNowPlaying(true) }}
               onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setShowNowPlaying(true)}
-              className="relative flex items-center gap-2.5 rounded-lg pl-1.5 pr-1 py-1.5 overflow-hidden cursor-pointer select-none"
+              /* rounded-xl, a hairline ring and a drop shadow to match the card
+                 language used elsewhere — against an arbitrary artwork-derived
+                 colour the bar previously blended into whatever sat behind it */
+              className="relative flex items-center gap-2.5 rounded-xl pl-1.5 pr-1 py-1.5 overflow-hidden cursor-pointer select-none shadow-lg shadow-black/30 ring-1 ring-white/10"
               style={{ backgroundColor: `rgb(${miniBarColor})` }}
             >
               <div className="w-10 h-10 rounded-md overflow-hidden bg-black/25 flex items-center justify-center shrink-0">
@@ -2443,14 +2600,25 @@ function App() {
             const Icon = tab.icon
             const isActive = activePage === tab.id || (tab.id === 'playlists' && activePage === 'playlist-detail')
             return (
+              /* Colour alone was carrying the active state, which is weak on a
+                 small screen and invisible to anyone who doesn't distinguish
+                 the violet from the grey. A top rule marks the active tab, and
+                 active:scale gives the tap somewhere to land. */
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setActivePage(tab.id)}
-                className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] transition-colors ${
-                  isActive ? 'text-violet-400' : 'text-gray-400'
+                aria-current={isActive ? 'page' : undefined}
+                className={`relative flex-1 flex flex-col items-center gap-1 pt-3 pb-2.5 text-[11px] font-medium transition-colors active:scale-[0.94] ${
+                  isActive ? 'text-violet-300' : 'text-gray-400'
                 }`}
               >
+                <span
+                  aria-hidden="true"
+                  className={`absolute top-0 h-[2px] w-9 rounded-full transition-opacity ${
+                    isActive ? 'bg-violet-400 opacity-100' : 'opacity-0'
+                  }`}
+                />
                 <Icon className="w-5 h-5" />
                 {tab.label}
               </button>

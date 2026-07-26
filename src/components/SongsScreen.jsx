@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
 import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square, MoreVertical, Upload } from 'lucide-react'
@@ -45,6 +45,7 @@ function SongsScreen({
   const [viewportHeight, setViewportHeight] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [contextMenu, setContextMenu] = useState(null) // { x, y, songId, songIndex }
+  const menuRef = useRef(null)
   const [sortOpen, setSortOpen] = useState(false)
   const [bgMouse, setBgMouse] = useState({ x: 50, y: 50 })
   const sortRef = useRef(null)
@@ -146,10 +147,35 @@ function SongsScreen({
   const openContextMenu = (e, song, i) => {
     e.preventDefault()
     e.stopPropagation()
-    const x = Math.min(e.clientX, window.innerWidth - 230)
-    const y = Math.min(e.clientY, window.innerHeight - 240)
-    setContextMenu({ x, y, songId: song.id, songIndex: i })
+    setContextMenu({ x: e.clientX, y: e.clientY, songId: song.id, songIndex: i })
   }
+
+  // Position the menu once it has actually rendered.
+  //
+  // The previous clamp subtracted a hard-coded 240px guess for the menu's
+  // height, but the menu grows with the playlist list, so a user with more than
+  // a couple of playlists got a panel far taller than the guess. window
+  // .innerHeight also ignores the mobile browser's collapsing URL bar and the
+  // home-indicator safe area. Between the two, tapping the ⋮ near the bottom of
+  // a song list opened a menu whose lower half sat off-screen and unreachable.
+  // Measuring the real panel against the visual viewport fixes both cases, and
+  // the max-height below lets a genuinely long menu scroll instead of overflow.
+  //
+  // The placement is written straight to the node rather than held in state:
+  // it's a one-way push to the DOM after React has painted, so routing it back
+  // through a setState would only buy an extra render pass.
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (!contextMenu || !el) return
+    const vv = window.visualViewport
+    const vw = vv?.width ?? window.innerWidth
+    const vh = vv?.height ?? window.innerHeight
+    const margin = 8
+    const { width, height } = el.getBoundingClientRect()
+    el.style.left = `${Math.max(margin, Math.min(contextMenu.x, vw - width - margin))}px`
+    el.style.top = `${Math.max(margin, Math.min(contextMenu.y, vh - height - margin))}px`
+    el.style.visibility = 'visible'
+  }, [contextMenu])
 
   return (
     <>
@@ -417,8 +443,12 @@ function SongsScreen({
       {/* Right-click context menu — glassmorphism */}
       {contextMenu && (
         <div
-          className="menu-panel fixed z-[400] min-w-[220px] rounded-2xl border border-white/15 backdrop-blur-2xl p-1.5 flex flex-col gap-0.5"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          ref={menuRef}
+          className="menu-panel fixed z-[400] min-w-[220px] max-w-[calc(100vw-1rem)] max-h-[70vh] overflow-y-auto overscroll-contain rounded-2xl border border-white/15 backdrop-blur-2xl p-1.5 flex flex-col gap-0.5"
+          // Hidden for the first paint; the layout effect above measures the
+          // panel, places it and reveals it before the browser draws, so the
+          // user never sees the unpositioned frame.
+          style={{ left: 0, top: 0, visibility: 'hidden' }}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="px-3 pt-1.5 pb-1">

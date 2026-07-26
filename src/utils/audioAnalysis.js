@@ -1,7 +1,11 @@
 // Audio analysis: RMS normalisation gain + BPM detection
 // Runs entirely in-browser using OfflineAudioContext.
 
-const TARGET_DB = -18 // normalisation target level
+// Normalisation target. RMS on modern masters sits around -12 to -10 dBFS, so
+// the old -18 target handed back roughly -7 dB of gain for ordinary music and
+// made every normalised track audibly quieter than the source file. -14 is in
+// line with what streaming services target and keeps the correction small.
+const TARGET_DB = -14
 
 export async function analyzeAudio(file) {
   try {
