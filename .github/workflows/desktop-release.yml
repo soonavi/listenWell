@@ -27,23 +27,33 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The latest*.yml files are what electron-updater fetches to discover
+          # a new version. Without them attached to the release, the installed
+          # app has no way to know an update exists — the installers alone are
+          # not enough. The .blockmap files let Windows and macOS download only
+          # the changed chunks instead of the whole installer.
           - os: windows-latest
             platform: win
             artifact: ListenWell-windows
             files: |
               release/*.exe
+              release/*.exe.blockmap
+              release/latest.yml
           - os: macos-latest
             platform: mac
             artifact: ListenWell-macos
             files: |
               release/*.dmg
               release/*.zip
+              release/*.blockmap
+              release/latest-mac.yml
           - os: ubuntu-latest
             platform: linux
             artifact: ListenWell-linux
             files: |
               release/*.AppImage
               release/*.deb
+              release/latest-linux.yml
 
     runs-on: ${{ matrix.os }}
 
