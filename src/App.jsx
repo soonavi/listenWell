@@ -1106,6 +1106,14 @@ function App() {
     processAudioFiles(files, { prescan: prompt.prescan, skipDuplicateCheck: true })
   }, [duplicatePrompt, processAudioFiles, showUploadNotice])
 
+  // Declared above its callers: the offline cache is the authority on what's
+  // downloaded, so this re-reads it rather than tracking it optimistically.
+  const refreshOfflineState = useCallback(async () => {
+    const [ids, usage] = await Promise.all([listOfflineSongIds(), offlineUsageBytes()])
+    setOfflineSongIds(ids)
+    setOfflineUsage(usage)
+  }, [])
+
   const handleDeleteSong = (songId) => {
     const idx = songs.findIndex((s) => s.id === songId)
     if (idx === -1) return
@@ -1270,9 +1278,6 @@ function App() {
     setSelectedSongIndex((prev) => (typeof prev === 'number' ? prev + 1 : prev))
   }, [])
 
-  // A locally cached copy wins over the network URL, which is what makes
-  // offline playback work and also spares the bandwidth when it's online.
-  const currentTrackUrl = offlineTrackUrl ?? songs[currentTrackIndex]?.url ?? null
   const nowPlaying = currentTrackIndex != null ? songs[currentTrackIndex] : null
 
   // Resolve the cached copy for whatever is playing. Only one object URL is
@@ -1281,6 +1286,13 @@ function App() {
   const [offlineTrackUrl, setOfflineTrackUrl] = useState(null)
   const currentSongId = currentTrackIndex != null ? songs[currentTrackIndex]?.id : null
   const currentSongIsOffline = currentSongId ? offlineSongIds.includes(currentSongId) : false
+
+  // A locally cached copy wins over the network URL, which is what makes
+  // offline playback work and also spares the bandwidth when it's online.
+  // Must stay below the declaration above: reading `offlineTrackUrl` before it
+  // is initialised throws on every render and takes the whole app down.
+  const currentTrackUrl = offlineTrackUrl ?? songs[currentTrackIndex]?.url ?? null
+
   useEffect(() => {
     let cancelled = false
     let created = null
@@ -1639,12 +1651,6 @@ function App() {
       window.removeEventListener('dragleave', leave)
       window.removeEventListener('drop', drop)
     }
-  }, [])
-
-  const refreshOfflineState = useCallback(async () => {
-    const [ids, usage] = await Promise.all([listOfflineSongIds(), offlineUsageBytes()])
-    setOfflineSongIds(ids)
-    setOfflineUsage(usage)
   }, [])
 
   useEffect(() => { refreshOfflineState() }, [refreshOfflineState])

@@ -29,6 +29,11 @@ export default defineConfig([
       // can't see) and `_` marks a deliberate discard — both apply to
       // destructured parameters too, not just plain variables.
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' }],
+      // Reading a const/let above its declaration is a temporal dead zone
+      // error that throws on every render and takes the whole app down. It
+      // shipped once; the linter catches it now. Function declarations hoist,
+      // so they stay allowed.
+      'no-use-before-define': ['error', { functions: false, classes: false, variables: true }],
     },
   },
   {
