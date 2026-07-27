@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
-import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square, MoreVertical, Upload, CornerUpRight, Disc3, ArrowLeft, X, Download, ArrowDownToLine, CheckCircle2 } from 'lucide-react'
+import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square, MoreVertical, Upload, CornerUpRight, Disc3, ArrowLeft, X, Download, ArrowDownToLine, CheckCircle2, HardDrive } from 'lucide-react'
 import { GooeyInput } from '@/components/ui/gooey-input'
 import { groupByAlbum, groupByArtist, filterGroups } from '@/utils/grouping'
 
@@ -718,19 +718,28 @@ function SongsScreen({
             <Download className="w-4 h-4 shrink-0 text-gray-500" />
             Download
           </button>
-          <button
-            type="button"
-            disabled={offlineBusyIds.includes(contextMenu.songId)}
-            onClick={() => { onToggleOffline?.(contextMenu.songId); setContextMenu(null) }}
-            className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-sm text-white transition-colors text-left disabled:opacity-50"
-          >
-            {offlineSongIds.includes(contextMenu.songId)
-              ? <CheckCircle2 className="w-4 h-4 shrink-0 text-cyan-400" />
-              : <ArrowDownToLine className="w-4 h-4 shrink-0 text-gray-500" />}
-            {offlineBusyIds.includes(contextMenu.songId)
-              ? 'Working…'
-              : offlineSongIds.includes(contextMenu.songId) ? 'Remove from device' : 'Keep offline'}
-          </button>
+          {/* A device-only song is already the local copy — there is nothing to
+              download and nothing safe to clear. */}
+          {songs.find((s) => s.id === contextMenu.songId)?.local ? (
+            <div className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-500">
+              <HardDrive className="w-4 h-4 shrink-0 text-cyan-300" />
+              On this device only
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={offlineBusyIds.includes(contextMenu.songId)}
+              onClick={() => { onToggleOffline?.(contextMenu.songId); setContextMenu(null) }}
+              className="w-full flex items-center gap-3 rounded-xl hover:bg-white/[0.08] px-3 py-2.5 text-sm text-white transition-colors text-left disabled:opacity-50"
+            >
+              {offlineSongIds.includes(contextMenu.songId)
+                ? <CheckCircle2 className="w-4 h-4 shrink-0 text-cyan-400" />
+                : <ArrowDownToLine className="w-4 h-4 shrink-0 text-gray-500" />}
+              {offlineBusyIds.includes(contextMenu.songId)
+                ? 'Working…'
+                : offlineSongIds.includes(contextMenu.songId) ? 'Remove from device' : 'Keep offline'}
+            </button>
+          )}
           <div className="h-px bg-white/[0.07] mx-2 my-0.5" />
           <div className="px-3 py-1">
             <p className="text-[11px] font-medium text-gray-500">Add to playlist</p>

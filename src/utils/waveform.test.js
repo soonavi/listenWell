@@ -6,6 +6,7 @@ import {
   encodePeaks,
   decodePeaks,
   positionFromPointer,
+  resamplePeaks,
   PEAK_BUCKETS,
 } from './waveform.js'
 
@@ -66,6 +67,41 @@ test('decoding tolerates junk', () => {
   assert.deepEqual(decodePeaks(null), [])
   assert.deepEqual(decodePeaks('nope'), [])
   assert.deepEqual(decodePeaks([50, 'x', null]), [0.5, 0, 0])
+})
+
+test('resampling returns exactly the requested bar count', () => {
+  const peaks = new Array(160).fill(0.5)
+  assert.equal(resamplePeaks(peaks, 93).length, 93)
+  assert.equal(resamplePeaks(peaks, 1).length, 1)
+})
+
+test('resampling keeps the loudest value in each group', () => {
+  // Four bars down to two: each pair collapses to its maximum.
+  assert.deepEqual(resamplePeaks([0.1, 0.9, 0.2, 0.3], 2), [0.9, 0.3])
+})
+
+test('asking for more bars than exist returns a copy, not the original', () => {
+  const peaks = [0.1, 0.2]
+  const out = resamplePeaks(peaks, 10)
+  assert.deepEqual(out, peaks)
+  assert.notEqual(out, peaks, 'callers must not be able to mutate the stored array')
+})
+
+test('resampling tolerates junk input', () => {
+  assert.deepEqual(resamplePeaks(null, 8), [])
+  assert.deepEqual(resamplePeaks([], 8), [])
+  assert.deepEqual(resamplePeaks([0.5], 0), [])
+  assert.deepEqual(resamplePeaks([0.5, 'x', null, 0.25], 2), [0.5, 0.25])
+})
+
+test('resampling a decoded waveform never exceeds the bar count it is given', () => {
+  // The scrubber picks its bar count from the measured width; going over would
+  // overflow the box and desync the click position from the bars.
+  const decoded = decodePeaks(new Array(PEAK_BUCKETS).fill(70))
+  for (const count of [8, 40, 93, 200]) {
+    assert.ok(resamplePeaks(decoded, count).length <= Math.max(count, decoded.length))
+    assert.equal(resamplePeaks(decoded, count).length, Math.min(count, decoded.length))
+  }
 })
 
 test('pointer position maps to a 0..1 fraction and clamps', () => {

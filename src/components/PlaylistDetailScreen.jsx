@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Music2, ArrowLeft, Play, ImagePlus, GripVertical, X, Search, Plus, Pencil } from 'lucide-react'
+import { Music2, ArrowLeft, Play, ImagePlus, GripVertical, X, Search, Plus, Pencil, Trash2 } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -138,6 +138,7 @@ function PlaylistDetailScreen({
   onPlaySong,
   onToggleSongInPlaylist,
   onUpdatePlaylist,
+  onDeletePlaylist,
   onChangeSmartDefinition,
   currentTrackIndex,
   isPlaying,
@@ -150,6 +151,7 @@ function PlaylistDetailScreen({
   const [showEdit, setShowEdit] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -237,6 +239,17 @@ function PlaylistDetailScreen({
               >
                 <Pencil className="w-3.5 h-3.5" />
               </button>
+              {onDeletePlaylist && (
+                <button
+                  type="button"
+                  title="Delete playlist"
+                  aria-label="Delete playlist"
+                  onClick={() => setConfirmDelete(true)}
+                  className="shrink-0 p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
             {playlist.description && (
               <p className="text-xs text-gray-500 truncate mt-0.5">{playlist.description}</p>
@@ -381,6 +394,42 @@ function PlaylistDetailScreen({
           </div>
         </div>
       </div>
+      {/* Delete confirmation — a playlist is cheap to rebuild but annoying to
+          lose by accident, so the destructive step is always explicit. */}
+      {confirmDelete && (
+        <div
+          className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-2xl"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-playlist-title"
+        >
+          <div className="w-[min(92%,380px)] rounded-2xl border border-white/10 bg-[#0f1117]/95 p-5 flex flex-col gap-3 glass-card">
+            <h3 id="delete-playlist-title" className="text-sm font-semibold text-white">
+              Delete &ldquo;{playlist.name}&rdquo;?
+            </h3>
+            <p className="text-xs text-gray-500">
+              The playlist is removed. Your songs stay in your library.
+            </p>
+            <div className="flex items-center justify-end gap-2 mt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="px-3.5 py-2 rounded-[10px] text-xs text-gray-300 border border-white/15 hover:border-white/40 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { setConfirmDelete(false); onDeletePlaylist(playlist.id) }}
+                className="px-3.5 py-2 rounded-[10px] text-xs font-medium bg-red-500/90 text-white hover:bg-red-500 transition-colors"
+              >
+                Delete playlist
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit playlist modal */}
       {showEdit && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-2xl">

@@ -45,6 +45,35 @@ export function computePeaks(channelData, bucketCount = PEAK_BUCKETS) {
   return peaks.map((v) => v / loudest)
 }
 
+/**
+ * Reduce a peak array to `count` bars, keeping the loudest value in each group.
+ *
+ * The stored waveform holds PEAK_BUCKETS bars, which is far more than the
+ * player bar is ever wide enough to draw. Rendering all of them made the strip
+ * overflow its own box to the right — it looked off-centre, and every click
+ * landed ahead of where it was aimed because the pointer maths measured the box
+ * rather than the bars. The scrubber now picks a bar count from its measured
+ * width and resamples to it.
+ */
+export function resamplePeaks(peaks, count) {
+  if (!Array.isArray(peaks) || peaks.length === 0 || count <= 0) return []
+  if (count >= peaks.length) return peaks.slice()
+
+  const out = new Array(count).fill(0)
+  const perBar = peaks.length / count
+  for (let i = 0; i < count; i++) {
+    const start = Math.floor(i * perBar)
+    const end = Math.min(peaks.length, Math.max(start + 1, Math.floor((i + 1) * perBar)))
+    let max = 0
+    for (let j = start; j < end; j++) {
+      const value = Number(peaks[j])
+      if (Number.isFinite(value) && value > max) max = value
+    }
+    out[i] = max
+  }
+  return out
+}
+
 /** Pack 0..1 peaks into small integers for storage. */
 export function encodePeaks(peaks = []) {
   return peaks.map((v) => Math.round(Math.min(1, Math.max(0, v)) * PEAK_SCALE))

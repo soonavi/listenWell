@@ -1,6 +1,12 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { decodePeaks, positionFromPointer } from '@/utils/waveform'
+import { decodePeaks, positionFromPointer, resamplePeaks } from '@/utils/waveform'
+
+/**
+ * Width of one bar plus its gap. The bar count comes from dividing the measured
+ * width by this, so the strip always fits the box exactly.
+ */
+const BAR_PITCH = 4
 
 /**
  * Scrubber drawn from the track's own waveform.
@@ -21,12 +27,32 @@ function WaveformSeek({
 }) {
   const trackRef = useRef(null)
   const [dragFraction, setDragFraction] = useState(null)
+  const [trackWidth, setTrackWidth] = useState(0)
+
+  // Draw only as many bars as actually fit. A stored waveform holds 160 of
+  // them, which needs ~480px — more than the player bar ever gets — so the
+  // strip used to overflow its own box to the right. That both pushed the
+  // waveform off-centre and made every click land ahead of the target, because
+  // `getBoundingClientRect()` measures the box, not the overflowing bars.
+  // Measured in a layout effect so the first painted frame is already correct.
+  useLayoutEffect(() => {
+    const element = trackRef.current
+    if (!element) return
+    setTrackWidth(element.getBoundingClientRect().width)
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => setTrackWidth(entry.contentRect.width))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+
+  const barCount = Math.max(8, Math.floor(trackWidth / BAR_PITCH) || 8)
 
   const values = useMemo(() => {
     const decoded = decodePeaks(peaks)
     // Flat, quiet placeholder while the waveform is still being computed.
-    return decoded.length > 0 ? decoded : new Array(80).fill(0.18)
-  }, [peaks])
+    if (decoded.length === 0) return new Array(barCount).fill(0.18)
+    return resamplePeaks(decoded, Math.min(decoded.length, barCount))
+  }, [peaks, barCount])
 
   const playedFraction = dragFraction ?? (duration > 0 ? Math.min(1, currentTime / duration) : 0)
 
@@ -86,7 +112,9 @@ function WaveformSeek({
       onPointerUp={handlePointerUp}
       onPointerCancel={() => setDragFraction(null)}
       onKeyDown={handleKeyDown}
-      className={`relative flex items-end gap-[2px] select-none touch-none focus:outline-none focus-visible:ring-1 focus-visible:ring-violet-400/60 rounded ${disabled ? '' : 'cursor-pointer'} ${className}`}
+      // `min-w-0` lets a flex parent shrink this below the bars' intrinsic
+      // width instead of being forced wider by it.
+      className={`relative flex items-end gap-[2px] min-w-0 select-none touch-none focus:outline-none focus-visible:ring-1 focus-visible:ring-violet-400/60 rounded ${disabled ? '' : 'cursor-pointer'} ${className}`}
       style={{ height }}
     >
       {values.map((value, index) => {
@@ -95,7 +123,7 @@ function WaveformSeek({
           <span
             key={index}
             aria-hidden
-            className={`flex-1 min-w-[1px] rounded-full transition-colors ${played ? 'bg-violet-400' : 'bg-white/20'}`}
+            className={`flex-1 min-w-0 rounded-full transition-colors ${played ? 'bg-violet-400' : 'bg-white/20'}`}
             // Floor keeps near-silent passages visible as a hairline rather
             // than a gap in the bar.
             style={{ height: `${Math.max(8, value * 100)}%` }}
