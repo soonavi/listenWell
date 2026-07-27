@@ -15,6 +15,15 @@ export function offlineKeyFor(songId) {
   return `/__offline_audio__/${songId}`
 }
 
+/**
+ * Cover art for a device-only song. Server-hosted tracks keep their artwork in
+ * storage next to the audio; a local song has nowhere else to put it, and the
+ * embedded picture is far too big for localStorage.
+ */
+export function offlineCoverKeyFor(songId) {
+  return `/__offline_cover__/${songId}`
+}
+
 function cachesAvailable() {
   return typeof caches !== 'undefined' && typeof caches.open === 'function'
 }
@@ -71,11 +80,78 @@ export async function saveSongOffline(songId, url) {
   }
 }
 
+/**
+ * Store bytes we already hold, rather than fetching them back down.
+ *
+ * This is the write path for a device-only upload: the picked file goes
+ * straight into the cache and never touches the network.
+ */
+export async function saveFileOffline(songId, file) {
+  if (!cachesAvailable()) return { ok: false, error: 'Offline storage is unavailable in this browser.' }
+  if (!songId || !file) return { ok: false, error: 'Nothing to store.' }
+  try {
+    const cache = await caches.open(OFFLINE_CACHE)
+    await cache.put(
+      offlineKeyFor(songId),
+      new Response(file, { headers: { 'Content-Type': file.type || 'audio/mpeg' } }),
+    )
+    return { ok: true, bytes: file.size ?? 0 }
+  } catch (err) {
+    const quota = err?.name === 'QuotaExceededError'
+    return { ok: false, error: quota ? 'Not enough space left on this device.' : (err?.message || 'Could not save to this device.') }
+  }
+}
+
+/** Keep a local song's artwork alongside its audio. Failure is not fatal. */
+export async function saveCoverOffline(songId, blob) {
+  if (!cachesAvailable() || !songId || !blob) return false
+  try {
+    const cache = await caches.open(OFFLINE_CACHE)
+    await cache.put(
+      offlineCoverKeyFor(songId),
+      new Response(blob, { headers: { 'Content-Type': blob.type || 'image/jpeg' } }),
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function offlineCoverObjectUrl(songId) {
+  if (!cachesAvailable() || !songId) return null
+  try {
+    const cache = await caches.open(OFFLINE_CACHE)
+    const response = await cache.match(offlineCoverKeyFor(songId))
+    if (!response) return null
+    return URL.createObjectURL(await response.blob())
+  } catch {
+    return null
+  }
+}
+
+/** The cached bytes themselves — used when downloading a device-only song. */
+export async function offlineSongBlob(songId) {
+  if (!cachesAvailable() || !songId) return null
+  try {
+    const cache = await caches.open(OFFLINE_CACHE)
+    const response = await cache.match(offlineKeyFor(songId))
+    return response ? await response.blob() : null
+  } catch {
+    return null
+  }
+}
+
 export async function removeSongOffline(songId) {
   if (!cachesAvailable() || !songId) return false
   try {
     const cache = await caches.open(OFFLINE_CACHE)
-    return await cache.delete(offlineKeyFor(songId))
+    // The cover is part of the same copy; leaving it behind would strand bytes
+    // that nothing can reach.
+    const [removed] = await Promise.all([
+      cache.delete(offlineKeyFor(songId)),
+      cache.delete(offlineCoverKeyFor(songId)),
+    ])
+    return removed
   } catch {
     return false
   }

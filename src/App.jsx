@@ -9,8 +9,12 @@ import { extractPeaksFromFile } from './utils/waveform'
 import { writeId3Tag, supportsId3 } from './utils/id3Writer'
 import {
   listOfflineSongIds, saveSongOffline, removeSongOffline, offlineObjectUrl,
-  offlineUsageBytes, formatBytes,
+  offlineUsageBytes, formatBytes, saveFileOffline, saveCoverOffline,
+  offlineCoverObjectUrl, offlineSongBlob,
 } from './utils/offlineCache'
+import {
+  readLocalSongs, addLocalSong, updateLocalSong, removeLocalSong, isLocalSong,
+} from './utils/localLibrary'
 import WaveformSeek from './components/WaveformSeek'
 import UploadScreen from './components/UploadScreen'
 import SongsScreen from './components/SongsScreen' 
@@ -57,6 +61,8 @@ import {
   Shield,
   ScrollText,
   BarChart3,
+  Cloud,
+  HardDrive,
 } from 'lucide-react'
 
 // Custom equalizer bands (Hz). First band is a low shelf, last a high shelf.
@@ -256,6 +262,10 @@ function App() {
   // { files, prescan, duplicates } while the listener decides what to do about
   // files that already look present in the library.
   const [duplicatePrompt, setDuplicatePrompt] = useState(null)
+  // { files } while the listener chooses where a batch should live — on this
+  // device only, or hosted on the account. Asked every time: it decides whether
+  // the audio leaves the machine, which is not a thing to assume.
+  const [destinationPrompt, setDestinationPrompt] = useState(null)
   // Incremented by the `/` shortcut; SongsScreen watches it to focus search.
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
   // { songIds, artist, album } while the batch field editor is open. Blank
@@ -446,7 +456,29 @@ function App() {
   useEffect(() => {
     if (!user) return
   
+    // Device-only songs live in Cache Storage and localStorage, so they have to
+    // be folded back in by hand — the tracks table has never heard of them. A
+    // record whose audio is no longer in the cache is skipped rather than shown
+    // as a row that can't play.
+    const loadLocalSongs = async () => {
+      const records = readLocalSongs()
+      if (records.length === 0) return []
+      const present = new Set(await listOfflineSongIds())
+      return Promise.all(
+        records
+          .filter((record) => present.has(record.id))
+          .map(async (record) => ({
+            ...record,
+            storagePath: null,
+            url: null,
+            coverUrl: await offlineCoverObjectUrl(record.id),
+          })),
+      )
+    }
+
     const loadSongs = async () => {
+      const localSongs = await loadLocalSongs()
+
       const { data: tracks, error } = await supabase
         .from('tracks')
         .select('*')
@@ -454,9 +486,13 @@ function App() {
 
       if (error) {
         console.error('Failed to load library:', error.message)
+        if (localSongs.length > 0) setSongs(localSongs)
         return
       }
-      if (!tracks?.length) return
+      if (!tracks?.length) {
+        if (localSongs.length > 0) setSongs(localSongs)
+        return
+      }
 
       const audioPaths = tracks.map((t) => t.storage_path)
       const coverPaths = tracks.map((t) => `${t.storage_path.split('/').slice(0, -1).join('/')}/cover`)
@@ -490,7 +526,7 @@ function App() {
         }
       })
 
-      setSongs(songsWithUrls)
+      setSongs([...songsWithUrls, ...localSongs])
     }
 
     loadSongs()
@@ -507,6 +543,13 @@ function App() {
   // bpm) so they survive a refresh and sync across devices.
   const persistSongMeta = useCallback((id, patch) => {
     if (!id) return
+    // A device-only song keeps its metadata on the device too. Routing it
+    // through songMeta would sync the title, waveform and analysis to the
+    // account — exactly what choosing "this device" opted out of.
+    if (isLocalSong(id)) {
+      updateLocalSong(id, patch)
+      return
+    }
     setSongMeta((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }))
   }, [])
 
@@ -849,6 +892,14 @@ function App() {
     // On success the src effect picks up the new URL and restores the position.
   }, [resignSong, showUploadNotice])
 
+  // Declared above its callers: the offline cache is the authority on what's
+  // downloaded, so this re-reads it rather than tracking it optimistically.
+  const refreshOfflineState = useCallback(async () => {
+    const [ids, usage] = await Promise.all([listOfflineSongIds(), offlineUsageBytes()])
+    setOfflineSongIds(ids)
+    setOfflineUsage(usage)
+  }, [])
+
   const processAudioFiles = useCallback(async (fileList, options) => {
     // Use the authenticated user from state rather than awaiting
     // supabase.auth.getSession(): in Chrome that call can block indefinitely
@@ -880,6 +931,15 @@ function App() {
     const audioFiles = allAudioFiles.slice(0, uploadCap - existingCount)
     const skippedForLimit = allAudioFiles.length - audioFiles.length
 
+    // Where the audio should live. Asked before anything is read or sent —
+    // "keep it on this device" has to mean the bytes never left.
+    const destination = options?.destination
+    if (destination !== 'local' && destination !== 'server') {
+      setDestinationPrompt({ files: audioFiles })
+      return
+    }
+    const keepLocal = destination === 'local'
+
     // Read tags and hash the bytes up front so duplicates are caught before
     // anything is uploaded, and so the upload below doesn't re-read the tags.
     // Reused on the second pass when the listener has already made a choice.
@@ -907,7 +967,7 @@ function App() {
       if (duplicates.length > 0) {
         // The listener decides — a better-bitrate re-rip is a legitimate
         // re-upload, and the app shouldn't quietly discard files.
-        setDuplicatePrompt({ files: audioFiles, prescan, duplicates })
+        setDuplicatePrompt({ files: audioFiles, prescan, duplicates, destination })
         return
       }
     }
@@ -919,6 +979,8 @@ function App() {
       name: f.name,
       status: 'uploading',
       error: null,
+      // Kept so Retry doesn't quietly send a device-only file to the server.
+      destination,
     }))
     setUploadQueue(queueEntries)
     uploadFilesRef.current = new Map(queueEntries.map((entry, i) => [entry.id, audioFiles[i]]))
@@ -943,6 +1005,39 @@ function App() {
 
         try {
           tags = prescan.get(f)?.tags ?? await readAudioTags(f)
+
+          // ── Device-only: the file goes into Cache Storage and stops there.
+          // No storage upload, no `tracks` row, no signed URL. `url` stays null
+          // — the offline resolver mints an object URL for whatever is playing,
+          // which is also how a downloaded server track is played.
+          if (keepLocal) {
+            const stored = await saveFileOffline(id, f)
+            if (!stored.ok) throw new Error(stored.error)
+            if (tags?.picture) {
+              const { data, format } = tags.picture
+              const coverBlob = new Blob([data], { type: format || 'image/jpeg' })
+              await saveCoverOffline(id, coverBlob)
+              coverUrl = URL.createObjectURL(coverBlob)
+            }
+            markQueue(fileIndex, { status: 'done' })
+            return {
+              id,
+              title: tags?.title || f.name.replace(/\.[^/.]+$/, ''),
+              fileName: f.name,
+              artist: tags?.artist || '',
+              album: tags?.album || '',
+              storagePath: null,
+              contentHash,
+              gainDb: 0,
+              bpm: null,
+              url: null,
+              coverUrl,
+              description: '',
+              lyrics: '',
+              local: true,
+              _file: f,
+            }
+          }
 
           const sanitizedName = f.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')
           const storagePath = `${currentUser.id}/${id}/${sanitizedName}`
@@ -1021,6 +1116,10 @@ function App() {
           coverUrl,
           description: '',
           lyrics: '',
+          // Stays true even when the save above failed, so a device-only file
+          // that didn't make it is still treated as device-only — otherwise its
+          // title and analysis would sync to the account by the back door.
+          local: keepLocal,
           _file: f,
         }
       }),
@@ -1029,17 +1128,40 @@ function App() {
     const limitNote = skippedForLimit > 0
       ? ` ${skippedForLimit} song${skippedForLimit > 1 ? 's were' : ' was'} skipped — you've reached the ${MAX_UPLOADS}-song upload limit.`
       : ''
+    const where = keepLocal ? 'to this device' : 'to your library'
     if (failures.length > 0) {
       const saved = audioFiles.length - failures.length
-      showUploadNotice('error', `${failures.length} song${failures.length > 1 ? 's' : ''} could not be saved to your library (${failures[0].reason}). ${saved > 0 ? `${saved} saved. ` : ''}Unsaved songs will play until you refresh.${limitNote}`)
+      showUploadNotice('error', `${failures.length} song${failures.length > 1 ? 's' : ''} could not be saved ${where} (${failures[0].reason}). ${saved > 0 ? `${saved} saved. ` : ''}Unsaved songs will play until you refresh.${limitNote}`)
     } else {
-      showUploadNotice('success', `${audioFiles.length} song${audioFiles.length > 1 ? 's' : ''} saved to your library.${limitNote}`)
+      showUploadNotice('success', `${audioFiles.length} song${audioFiles.length > 1 ? 's' : ''} saved ${where}.${limitNote}`)
     }
 
     setIsUploading(false)
     // Successful entries have served their purpose; failures stay on screen
     // with a retry until they're dealt with.
     setUploadQueue((prev) => prev.filter((entry) => entry.status === 'failed'))
+
+    // Write the device-only records before any metadata is persisted below:
+    // `persistSongMeta` routes by this list, and a song missing from it would
+    // have its analysis synced to the account the listener opted out of.
+    // The object URLs are deliberately left out — they die on reload, and the
+    // audio and artwork are already in the cache.
+    for (const song of newSongs) {
+      if (!song.local) continue
+      addLocalSong({
+        id: song.id,
+        title: song.title,
+        fileName: song.fileName,
+        artist: song.artist,
+        album: song.album,
+        contentHash: song.contentHash,
+        gainDb: song.gainDb,
+        bpm: song.bpm,
+        description: '',
+        lyrics: '',
+      })
+    }
+    if (newSongs.some((s) => s.local)) refreshOfflineState()
 
     setSongs((prev) => {
       const existingIds = new Set(prev.map((s) => s.id))
@@ -1080,7 +1202,7 @@ function App() {
         persistSongMeta(song.id, { peaks })
       }).catch(() => {})
     }
-  }, [showUploadNotice, user, persistSongMeta])
+  }, [showUploadNotice, user, persistSongMeta, refreshOfflineState])
 
   const handleUpload = (e) => {
     processAudioFiles(e.target.files || [])
@@ -1103,16 +1225,19 @@ function App() {
       showUploadNotice('success', 'Nothing to upload — every selected file is already in your library.')
       return
     }
-    processAudioFiles(files, { prescan: prompt.prescan, skipDuplicateCheck: true })
+    processAudioFiles(files, {
+      prescan: prompt.prescan,
+      skipDuplicateCheck: true,
+      destination: prompt.destination,
+    })
   }, [duplicatePrompt, processAudioFiles, showUploadNotice])
 
-  // Declared above its callers: the offline cache is the authority on what's
-  // downloaded, so this re-reads it rather than tracking it optimistically.
-  const refreshOfflineState = useCallback(async () => {
-    const [ids, usage] = await Promise.all([listOfflineSongIds(), offlineUsageBytes()])
-    setOfflineSongIds(ids)
-    setOfflineUsage(usage)
-  }, [])
+  const resolveDestinationPrompt = useCallback((destination) => {
+    const prompt = destinationPrompt
+    setDestinationPrompt(null)
+    if (!prompt || !destination) return
+    processAudioFiles(prompt.files, { destination })
+  }, [destinationPrompt, processAudioFiles])
 
   const handleDeleteSong = (songId) => {
     const idx = songs.findIndex((s) => s.id === songId)
@@ -1122,6 +1247,9 @@ function App() {
     if (offlineSongIdsRef.current.includes(songId)) {
       removeSongOffline(songId).then(refreshOfflineState)
     }
+    // For a device-only song that cache was the only copy, so this is the whole
+    // deletion — the Supabase pass below finds nothing and does nothing.
+    removeLocalSong(songId)
     if (currentTrackIndex === idx) {
       audioRef.current?.pause()
       setIsPlaying(false)
@@ -1611,7 +1739,16 @@ function App() {
 
     setSongs((prev) => prev.map((s) => (pending.songIds.includes(s.id) ? { ...s, ...patch } : s)))
 
-    const { error } = await supabase.from('tracks').update(patch).in('id', pending.songIds)
+    // Device-only songs are edited in place; the rest go to the tracks table.
+    const localIds = pending.songIds.filter((id) => isLocalSong(id))
+    for (const id of localIds) updateLocalSong(id, patch)
+    const remoteIds = pending.songIds.filter((id) => !localIds.includes(id))
+    if (remoteIds.length === 0) {
+      showUploadNotice('success', `Updated ${pending.songIds.length} track${pending.songIds.length === 1 ? '' : 's'}.`)
+      return
+    }
+
+    const { error } = await supabase.from('tracks').update(patch).in('id', remoteIds)
     if (error) {
       showUploadNotice('error', `Saved locally, but the change didn't reach your library: ${error.message}`)
       return
@@ -1660,6 +1797,13 @@ function App() {
     const song = stateRef.current.songs?.find((s) => s.id === songId)
     if (!song) return
 
+    // A device-only song has no server copy to fall back on, so clearing the
+    // cache would destroy it. Deleting it is a separate, explicit action.
+    if (song.local) {
+      showUploadNotice('error', `"${song.title || song.fileName}" only exists on this device. Delete it if you want it gone.`)
+      return
+    }
+
     setOfflineBusyIds((prev) => [...prev, songId])
     try {
       if (offlineSongIdsRef.current.includes(songId)) {
@@ -1681,12 +1825,18 @@ function App() {
   // account. Non-MPEG containers are handed over untouched.
   const handleDownloadSong = useCallback(async (songId) => {
     const song = stateRef.current.songs?.find((s) => s.id === songId)
-    if (!song?.url) return
+    // A device-only song has no URL to fetch — its bytes come out of the cache.
+    if (!song || (!song.url && !song.local)) return
 
     try {
-      const response = await fetch(song.url)
-      if (!response.ok) throw new Error(`status ${response.status}`)
-      let bytes = new Uint8Array(await response.arrayBuffer())
+      const source = song.url
+        ? await fetch(song.url).then((r) => {
+            if (!r.ok) throw new Error(`status ${r.status}`)
+            return r.blob()
+          })
+        : await offlineSongBlob(songId)
+      if (!source) throw new Error('the file is no longer on this device')
+      let bytes = new Uint8Array(await source.arrayBuffer())
 
       if (supportsId3(song.fileName)) {
         let picture = null
@@ -1775,6 +1925,18 @@ function App() {
   const updateSmartDefinition = useCallback((playlistId, smart) => {
     setPlaylists((prev) => prev.map((pl) => (pl.id === playlistId ? { ...pl, smart } : pl)))
   }, [])
+
+  // Removing a playlist only removes the grouping — the songs are the library's,
+  // not the playlist's.
+  const deletePlaylist = useCallback((playlistId) => {
+    if (!playlistId) return
+    const name = playlists.find((pl) => pl.id === playlistId)?.name
+    setPlaylists((prev) => prev.filter((pl) => pl.id !== playlistId))
+    setRecentItems((prev) => prev.filter((item) => !(item.type === 'playlist' && item.id === playlistId)))
+    setSelectedPlaylistId((prev) => (prev === playlistId ? null : prev))
+    setActivePage('playlists')
+    showUploadNotice('success', name ? `"${name}" deleted.` : 'Playlist deleted.')
+  }, [playlists, showUploadNotice])
 
   // Ownership means being able to walk away with your organisation, so the
   // export is a plain readable JSON file rather than an opaque blob.
@@ -2521,6 +2683,17 @@ function App() {
 
     setSongs((prev) => prev.map((s) => (s.id === pending.songId ? { ...s, coverUrl: dataUrl } : s)))
 
+    // A device-only song's artwork belongs in the cache next to its audio.
+    // Uploading it would put part of the track on the server after all.
+    if (isLocalSong(pending.songId)) {
+      try {
+        await saveCoverOffline(pending.songId, await (await fetch(dataUrl)).blob())
+      } catch (err) {
+        showUploadNotice('error', `Cover saved for this session only: ${err.message}`)
+      }
+      return
+    }
+
     if (!user) return
     try {
       const blob = await (await fetch(dataUrl)).blob()
@@ -2536,6 +2709,16 @@ function App() {
   // Persist edited title/artist/album back to the tracks table
   const saveSongMetadata = useCallback(async (song) => {
     if (!song?.id || !user) return
+    // A device-only song has no tracks row to update — the edit belongs in the
+    // local record, which is what the loader reads it back from.
+    if (isLocalSong(song.id)) {
+      updateLocalSong(song.id, {
+        title: song.title || '',
+        artist: song.artist || '',
+        album: song.album || '',
+      })
+      return
+    }
     const { error } = await supabase
       .from('tracks')
       .update({ title: song.title || '', artist: song.artist || '', album: song.album || '' })
@@ -2712,6 +2895,62 @@ function App() {
           </div>
         </div>
       )}
+      {/* Where the audio should live. Asked before a byte is read, because the
+          answer decides whether the file leaves the machine at all. */}
+      {destinationPrompt && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="destination-prompt-title">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setDestinationPrompt(null)} />
+          <div className="relative w-full max-w-md rounded-2xl border border-white/10 bg-[#0f1117]/95 shadow-2xl glass-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/[0.06]">
+              <h3 id="destination-prompt-title" className="text-sm font-semibold text-white">
+                Where should {destinationPrompt.files.length === 1 ? 'this file' : `these ${destinationPrompt.files.length} files`} live?
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">Your call, every time. You can delete either kind later.</p>
+            </div>
+
+            <div className="px-5 py-4 flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={() => resolveDestinationPrompt('server')}
+                className="w-full text-left rounded-xl border border-white/12 hover:border-violet-400/60 hover:bg-violet-500/[0.07] px-4 py-3.5 transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <Cloud className="w-4 h-4 shrink-0 text-violet-400" />
+                  <span className="text-sm font-medium text-white">Host on Listenwell</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1.5 ml-7">
+                  Uploaded to your account. Plays on every device you sign in to, and survives clearing your browser.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => resolveDestinationPrompt('local')}
+                className="w-full text-left rounded-xl border border-white/12 hover:border-cyan-400/60 hover:bg-cyan-400/[0.07] px-4 py-3.5 transition-colors group"
+              >
+                <div className="flex items-center gap-3">
+                  <HardDrive className="w-4 h-4 shrink-0 text-cyan-300" />
+                  <span className="text-sm font-medium text-white">Keep on this device</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1.5 ml-7">
+                  Nothing is uploaded — not the audio, not the title. Plays offline, but only here, and clearing site data
+                  removes it.
+                </p>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-end px-5 py-4 border-t border-white/[0.06]">
+              <button
+                type="button"
+                onClick={() => setDestinationPrompt(null)}
+                className="px-3.5 py-2 rounded-[10px] text-xs text-gray-300 border border-white/15 hover:border-white/40 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {duplicatePrompt && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="duplicate-prompt-title">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => resolveDuplicatePrompt('cancel')} />
@@ -2808,7 +3047,7 @@ function App() {
                       onClick={() => {
                         const file = uploadFilesRef.current.get(entry.id)
                         setUploadQueue((prev) => prev.filter((e) => e.id !== entry.id))
-                        if (file) processAudioFiles([file], { skipDuplicateCheck: true })
+                        if (file) processAudioFiles([file], { skipDuplicateCheck: true, destination: entry.destination })
                       }}
                       className="shrink-0 px-2.5 py-1 rounded-lg text-[10px] text-gray-200 border border-white/15 hover:border-white/40 transition-colors"
                     >
@@ -3349,6 +3588,7 @@ function App() {
                     prev.map((pl) => (pl.id === playlistId ? { ...pl, ...updates } : pl)),
                   )
                 }}
+                onDeletePlaylist={deletePlaylist}
               />
             </motion.div>
           )}
