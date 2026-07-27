@@ -47,12 +47,16 @@ jobs:
               release/*.dmg.blockmap
               release/*.zip
               release/latest-mac.yml
+          # AppImage only. The .deb target is built by fpm, which refuses to
+          # run without a maintainer email in package.json — and that address
+          # ends up publicly readable inside every downloaded package. An
+          # AppImage needs no such thing and runs on any distro without being
+          # installed, so it costs nothing to drop the .deb.
           - os: ubuntu-latest
             platform: linux
             artifact: ListenWell-linux
             files: |
               release/*.AppImage
-              release/*.deb
               release/latest-linux.yml
 
     runs-on: ${{ matrix.os }}
