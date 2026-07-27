@@ -319,6 +319,8 @@ function App() {
   const [songFilter, setSongFilter] = useState('all')
   const [songSortBy, setSongSortBy] = useState('default')
   const [songTileSize, setSongTileSize] = useState(() => safeGetStorage('listenwell-tile-size', 'medium'))
+  // How the Songs page lays entries out: 'grid' of artwork or 'bars' of rows.
+  const [songViewMode, setSongViewMode] = useState(() => safeGetStorage('listenwell-song-view', 'grid'))
   const [lovedSongIds, setLovedSongIds] = useState(() => parseStoredJSON('listenwell-loved', []))
   const [showNowPlayingAddMenu, setShowNowPlayingAddMenu] = useState(false)
   const [shuffle, setShuffle] = useState(false)
@@ -1686,6 +1688,7 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-art-color', String(artColorExtract)) }, [artColorExtract])
   useEffect(() => { if (displayName) safeSetStorage('listenwell-display-name', displayName) }, [displayName])
   useEffect(() => { safeSetStorage('listenwell-tile-size', songTileSize) }, [songTileSize])
+  useEffect(() => { safeSetStorage('listenwell-song-view', songViewMode) }, [songViewMode])
   useEffect(() => { safeSetStorage('listenwell-songmeta', JSON.stringify(songMeta)) }, [songMeta])
   useEffect(() => {
     if (songsBgUrl) safeSetStorage('listenwell-songs-bg', songsBgUrl)
@@ -1717,6 +1720,7 @@ function App() {
     profilePicUrl,
     displayName,
     songTileSize,
+    songViewMode,
     volume,
     playbackRate,
     eqPreset,
@@ -2019,6 +2023,7 @@ function App() {
         if (typeof d.profilePicUrl === 'string' || d.profilePicUrl === null) setProfilePicUrl(d.profilePicUrl)
         if (typeof d.displayName === 'string') setDisplayName(d.displayName)
         if (typeof d.songTileSize === 'string') setSongTileSize(d.songTileSize)
+        if (d.songViewMode === 'grid' || d.songViewMode === 'bars') setSongViewMode(d.songViewMode)
         if (typeof d.volume === 'number') setVolume(Math.min(1, Math.max(0, d.volume)))
         if (typeof d.playbackRate === 'number') setPlaybackRate(clampPlaybackRate(d.playbackRate))
         if (typeof d.eqPreset === 'string') setEqPreset(d.eqPreset)
@@ -2051,7 +2056,7 @@ function App() {
     }, 1200)
     return () => window.clearTimeout(userStateTimerRef.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize, volume, playbackRate, eqPreset, songMeta, songsBgUrl, songsBgBlur])
+  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize, songViewMode, volume, playbackRate, eqPreset, songMeta, songsBgUrl, songsBgBlur])
 
   // When persisted meta arrives from user_state after songs have already loaded
   // (login race), fill in any gainDb/bpm/description still at their defaults.
@@ -3450,6 +3455,8 @@ function App() {
                 playCounts={playCounts}
                 tileSize={songTileSize}
                 onChangeTileSize={setSongTileSize}
+                viewMode={songViewMode}
+                onChangeViewMode={setSongViewMode}
                 onChangeSongFilter={setSongFilter}
                 onChangeSortBy={setSongSortBy}
                 onToggleLoved={toggleLovedSong}
