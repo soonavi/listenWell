@@ -25,6 +25,15 @@ export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
  */
 export const MAX_NODES = 240
 
+/**
+ * How far the globe may be pitched, in radians — short of a right angle on
+ * purpose. Turned fully onto a pole, latitude stops reading as rank and the
+ * sphere collapses into concentric rings of dots that encode nothing.
+ */
+export const PITCH_LIMIT = 1.25
+
+const TAU = Math.PI * 2
+
 const VIOLET = [139, 92, 246]
 const CYAN = [34, 211, 238]
 
@@ -161,6 +170,41 @@ export function project(node, { rotX, rotY, radius, cx, cy, distance = 3.2 }) {
 
   const scale = distance / (distance - z2)
   return { sx: cx + x1 * radius * scale, sy: cy - y2 * radius * scale, z: z2, scale }
+}
+
+/**
+ * The rotation that turns a node to the front of the globe, facing the camera.
+ *
+ * It falls straight out of the order `project` rotates in — Y first, then X.
+ * Undoing the node's own bearing puts it in the plane of the screen centre
+ * (x1 = 0, which leaves z1 = hypot(x, z), its distance from the polar axis),
+ * and pitching by its latitude lifts it onto the equator (y2 = 0). Together
+ * that is the canvas centre at z = 1, the nearest point of the sphere.
+ *
+ * Two corrections sit on top of the arithmetic:
+ *
+ * The pitch is clamped exactly as dragging clamps it, so a node near a pole
+ * comes as near the middle as the camera is ever allowed and stops there. It
+ * ends up off-centre, which is the honest result — the alternative is a view
+ * the rest of the component forbids.
+ *
+ * rotY is unbounded, because it counts every turn the user has dragged
+ * through. Tweening to a raw angle could therefore spin the globe several times
+ * on the way to a node that was already in front of them, so the target is the
+ * current angle plus the short way round: the move a viewer would describe as
+ * turning to face it.
+ */
+export function focusRotation(node, currentRotY) {
+  const pitch = Math.atan2(node.y, Math.hypot(node.x, node.z))
+
+  let delta = (-Math.atan2(node.x, node.z) - currentRotY) % TAU
+  if (delta > Math.PI) delta -= TAU
+  else if (delta <= -Math.PI) delta += TAU
+
+  return {
+    rotX: Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch)),
+    rotY: currentRotY + delta,
+  }
 }
 
 /** Dot radius before perspective, in pixels, proportional to the sphere. */

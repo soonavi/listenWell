@@ -5,6 +5,8 @@ import {
   buildSphereNodes,
   latticePoint,
   project,
+  focusRotation,
+  PITCH_LIMIT,
   dotRadius,
   artRadius,
   countWithArt,
@@ -139,6 +141,45 @@ test('rotation preserves the radius', () => {
   const view = { rotX: 0.7, rotY: -2.1, radius: 1, cx: 0, cy: 0, distance: 1e9 }
   const p = project({ x: 0.6, y: 0.48, z: 0.64 }, view)
   assert.ok(Math.abs(Math.hypot(p.sx, p.sy, p.z) - 1) < 1e-6)
+})
+
+test('focusing a node brings it to the centre of the canvas, facing the camera', () => {
+  const canvas = { radius: 100, cx: 200, cy: 150 }
+  for (let i = 0; i < 12; i += 1) {
+    const node = latticePoint(i, 12)
+    const { rotX, rotY } = focusRotation(node, 0)
+    const p = project(node, { ...canvas, rotX, rotY })
+    assert.ok(p.z > 0, `node ${i} is on the far side`)
+    // The two ends of the lattice are the poles, which the pitch clamp holds
+    // short of the middle on purpose; every other node lands dead centre.
+    if (Math.abs(node.y) < Math.sin(PITCH_LIMIT)) {
+      assert.ok(Math.abs(p.sx - canvas.cx) < 1e-9, `node ${i} is off centre by ${p.sx - canvas.cx}`)
+      assert.ok(Math.abs(p.sy - canvas.cy) < 1e-9, `node ${i} is off centre by ${p.sy - canvas.cy}`)
+    }
+  }
+})
+
+test('a node at the pole leans as far as the pitch is allowed and no further', () => {
+  assert.ok(PITCH_LIMIT < Math.PI / 2, 'a pole can never be centred, only approached')
+  assert.equal(focusRotation({ x: 0, y: 1, z: 0 }, 0).rotX, PITCH_LIMIT)
+  assert.equal(focusRotation({ x: 0, y: -1, z: 0 }, 0).rotX, -PITCH_LIMIT)
+
+  const north = focusRotation({ x: 0, y: 1, z: 0 }, 0)
+  const p = project({ x: 0, y: 1, z: 0 }, { ...north, radius: 100, cx: 0, cy: 0 })
+  assert.ok(p.z > 0, 'still turned to the near side, just short of the middle')
+  assert.ok(Math.abs(p.sy) < 100, 'and still on the sphere rather than flung off the edge')
+})
+
+test('the globe takes the short way round however many turns it has been dragged', () => {
+  const node = latticePoint(3, 9)
+  for (const current of [-99, -Math.PI * 2, -Math.PI, -0.3, 0, 1.7, Math.PI, 12.5, 400]) {
+    const { rotY } = focusRotation(node, current)
+    const travelled = Math.abs(rotY - current)
+    assert.ok(travelled <= Math.PI + 1e-9, `turned ${travelled} radians from ${current}`)
+    // Whatever the winding, it is the same face of the globe that ends up front.
+    const p = project(node, { rotX: 0, rotY, radius: 100, cx: 0, cy: 0 })
+    assert.ok(Math.abs(p.sx) < 1e-8, `landed ${p.sx} off centre from ${current}`)
+  }
 })
 
 test('dot area, not diameter, tracks the count', () => {

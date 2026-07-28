@@ -1,16 +1,43 @@
 import React, { useCallback, useEffect, useRef } from 'react'
 
-import { project, dotRadius, artRadius, coverCrop, toneColor, depthAlpha, pickNode } from '@/utils/listeningSphere'
+import {
+  project, dotRadius, artRadius, coverCrop, toneColor, depthAlpha, pickNode, focusRotation, PITCH_LIMIT,
+} from '@/utils/listeningSphere'
 
 const TAU = Math.PI * 2
-const PITCH_LIMIT = 1.25
 const DRAG_SPEED = 0.006
 const IDLE_SPIN = 0.0015
 const INERTIA_DECAY = 0.94
 const TAP_SLOP = 6
 const AMBIENT_LABELS = 5
+/** Long enough to read as a turn, short enough that it never feels like a wait. */
+const FOCUS_MS = 520
+/**
+ * How far selecting leans in. Deliberately slight: the neighbours of the node
+ * you picked are most of what the reading means, and they have to stay in
+ * frame. This is a step towards the globe, not a dive into it.
+ */
+const FOCUS_ZOOM = 1.4
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+
+/**
+ * A camera move, in the terms the draw loop interpolates: where it started,
+ * where it is going, and how long it has to get there. Reduced motion asks for
+ * no time at all, and the loop settles it on the very next frame.
+ */
+function cameraMove(view, rotX, rotY, zoom, duration) {
+  return {
+    fromX: view.rotX,
+    fromY: view.rotY,
+    fromZoom: view.zoom,
+    toX: rotX,
+    toY: rotY,
+    toZoom: zoom,
+    start: performance.now(),
+    duration,
+  }
+}
 
 /**
  * A scrim under text that has to stay readable whatever it lands on.
@@ -74,6 +101,10 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, showArt = f
     pointers: new Map(),
     pinch: 0,
     hoverKey: null,
+    // The camera move currently running, if any, and the zoom to hand back
+    // when the selection that started it is let go.
+    focus: null,
+    restZoom: null,
     points: [],
     width: 0,
     height: 0,
@@ -87,7 +118,45 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, showArt = f
   const markDirty = () => { viewRef.current.dirty = true }
 
   useEffect(() => { nodesRef.current = nodes; markDirty() }, [nodes])
-  useEffect(() => { selectedRef.current = selectedKey; markDirty() }, [selectedKey])
+  // Selecting turns the globe until the node you picked is facing you, and
+  // leans in slightly. Before, the sphere simply stopped dead wherever it had
+  // drifted to — and the reading you asked for was as likely as not on the far
+  // side, so the whole thing read as a stall rather than an answer.
+  //
+  // It hangs off selectedKey rather than off the tap, so the hidden buttons
+  // below and any selection made from outside the canvas move the camera the
+  // same way. A keyboard user has even less idea where the node went.
+  useEffect(() => {
+    selectedRef.current = selectedKey
+    markDirty()
+
+    const view = viewRef.current
+    const duration = reducedMotionRef.current ? 0 : FOCUS_MS
+
+    if (selectedKey === null) {
+      // Letting go hands back the zoom the view arrived with. The rotation
+      // stays exactly where it is: finishing with a reading is no reason to
+      // move the globe, and the idle drift picks it up from there.
+      view.focus = view.restZoom === null ? null : cameraMove(view, view.rotX, view.rotY, view.restZoom, duration)
+      view.restZoom = null
+      return
+    }
+
+    // A key with nothing behind it has nowhere to aim; the parent drops a
+    // stranded selection during render, so this frame is the only one it lasts.
+    const node = nodesRef.current.find((entry) => entry.key === selectedKey)
+    if (!node) return
+
+    // Only the first focus records where the camera was. Picking a second node
+    // while already focused would otherwise store the leaned-in zoom as the one
+    // to return to, and there would be no way back out.
+    if (view.restZoom === null) view.restZoom = view.zoom
+    const { rotX, rotY } = focusRotation(node, view.rotY)
+    // Never zoom out to get here: a user who has already pinched in closer
+    // asked for that, and being yanked back is worse than not leaning in.
+    const zoom = clamp(Math.max(view.zoom, FOCUS_ZOOM), 0.6, 3)
+    view.focus = cameraMove(view, rotX, rotY, zoom, duration)
+  }, [selectedKey])
   useEffect(() => { showArtRef.current = showArt; markDirty() }, [showArt])
   useEffect(() => { onSelectRef.current = onSelect }, [onSelect])
 
@@ -350,7 +419,23 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, showArt = f
     let frame = 0
     const tick = () => {
       const view = viewRef.current
-      if (!view.dragging) {
+      const focus = view.focus
+      if (focus) {
+        // A focus move owns the camera for as long as it runs — inertia and
+        // idle drift write the same three numbers, and a tween sharing them
+        // with a decaying fling arrives somewhere neither of them intended.
+        const t = focus.duration > 0 ? Math.min(1, (performance.now() - focus.start) / focus.duration) : 1
+        // Eased out: leaves briskly, arrives gently. Linear reads mechanical,
+        // and this is meant to look like the globe turning to face you.
+        const eased = 1 - (1 - t) ** 3
+        view.rotX = focus.fromX + (focus.toX - focus.fromX) * eased
+        view.rotY = focus.fromY + (focus.toY - focus.fromY) * eased
+        view.zoom = focus.fromZoom + (focus.toZoom - focus.fromZoom) * eased
+        view.velX = 0
+        view.velY = 0
+        view.dirty = true
+        if (t >= 1) view.focus = null
+      } else if (!view.dragging) {
         if (view.velX !== 0 || view.velY !== 0) {
           view.rotY += view.velY
           view.rotX = clamp(view.rotX + view.velX, -PITCH_LIMIT, PITCH_LIMIT)
@@ -384,6 +469,11 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, showArt = f
     const onWheel = (event) => {
       event.preventDefault()
       const view = viewRef.current
+      view.focus = null
+      // Setting the distance by hand replaces the one to return to. Otherwise
+      // letting the reading go would undo a zoom the user chose deliberately,
+      // which is the same yank the focus itself is careful not to perform.
+      view.restZoom = null
       view.zoom = clamp(view.zoom * (event.deltaY > 0 ? 0.92 : 1.08), 0.6, 3)
       view.dirty = true
     }
@@ -403,6 +493,10 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, showArt = f
 
   const handlePointerDown = (event) => {
     const view = viewRef.current
+    // A hand on the globe outranks a focus move, which abandons wherever it
+    // had got to rather than fighting the drag or snapping to its target. A
+    // pinch starts with a pointer down as well, so that is covered here too.
+    view.focus = null
     canvasRef.current.setPointerCapture(event.pointerId)
     view.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
     if (view.pointers.size === 1) {
@@ -427,6 +521,7 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, showArt = f
     if (view.pointers.size === 2) {
       const span = pinchSpan(view)
       if (view.pinch > 0 && span > 0) {
+        view.restZoom = null
         view.zoom = clamp(view.zoom * (span / view.pinch), 0.6, 3)
       }
       view.pinch = span
@@ -485,10 +580,14 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, showArt = f
     else if (event.key === 'ArrowRight') view.rotY += step
     else if (event.key === 'ArrowUp') view.rotX = clamp(view.rotX - step, -PITCH_LIMIT, PITCH_LIMIT)
     else if (event.key === 'ArrowDown') view.rotX = clamp(view.rotX + step, -PITCH_LIMIT, PITCH_LIMIT)
-    else if (event.key === '+' || event.key === '=') view.zoom = clamp(view.zoom * 1.12, 0.6, 3)
-    else if (event.key === '-') view.zoom = clamp(view.zoom * 0.89, 0.6, 3)
+    else if (event.key === '+' || event.key === '=') { view.zoom = clamp(view.zoom * 1.12, 0.6, 3); view.restZoom = null }
+    else if (event.key === '-') { view.zoom = clamp(view.zoom * 0.89, 0.6, 3); view.restZoom = null }
     else if (event.key === 'Escape') onSelectRef.current?.(null)
     else return
+    // Turning or zooming by hand cancels a focus move the same way a drag
+    // does. Escape is the exception: it clears the selection, and the release
+    // that follows is what hands the zoom back.
+    if (event.key !== 'Escape') view.focus = null
     view.dirty = true
     event.preventDefault()
   }

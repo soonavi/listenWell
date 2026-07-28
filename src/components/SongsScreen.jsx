@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
 import { Music2, Heart, Plus, ChevronDown, ChevronRight, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square, LayoutGrid, Rows3, MoreVertical, Upload, CornerUpRight, Disc3, ArrowLeft, X, Download, ArrowDownToLine, CheckCircle2, HardDrive } from 'lucide-react'
@@ -82,7 +82,20 @@ function SongsScreen({
   const [selectionAnchor, setSelectionAnchor] = useState(null)
   const [bgMouse, setBgMouse] = useState({ x: 50, y: 50 })
   const sortRef = useRef(null)
+  // The song grid unmounts entirely whenever the user is browsing
+  // albums/artists without having drilled into one, so a plain ref would go
+  // stale (still pointing at the detached old node) the moment the grid
+  // remounts. Mirroring the node into state as well gives the measuring
+  // effect below a dependency it can actually react to; the ref stays around
+  // for the one spot that needs to write to the DOM node directly, since
+  // state values are treated as immutable. Both are only ever written
+  // together, from the callback ref, so they can't drift apart.
   const gridViewportRef = useRef(null)
+  const [gridViewportEl, setGridViewportEl] = useState(null)
+  const setGridViewport = useCallback((node) => {
+    gridViewportRef.current = node
+    setGridViewportEl(node)
+  }, [])
   const normalizedQuery = searchQuery.trim().toLowerCase()
 
   // Close sort dropdown on outside click
@@ -184,7 +197,7 @@ function SongsScreen({
   const clearSelection = () => { setSelectedIds([]); setSelectionAnchor(null) }
 
   useEffect(() => {
-    const viewport = gridViewportRef.current
+    const viewport = gridViewportEl
     if (!viewport) return
     const measure = () => {
       setViewportHeight(viewport.clientHeight || 0)
@@ -202,6 +215,10 @@ function SongsScreen({
       })
     }
     viewport.addEventListener('scroll', onScroll, { passive: true })
+    // Bound to the element itself, not the window, so this already re-fires
+    // when the list growing/shrinking changes the viewport's own box (e.g. a
+    // scrollbar appearing shifts clientWidth) — no need to depend on the song
+    // count separately.
     const resizeObserver = new ResizeObserver(measure)
     resizeObserver.observe(viewport)
     window.addEventListener('resize', measure)
@@ -211,7 +228,7 @@ function SongsScreen({
       resizeObserver.disconnect()
       window.removeEventListener('resize', measure)
     }
-  }, [visibleSongs.length])
+  }, [gridViewportEl])
 
   // Switching layout changes the row stride, so a preserved offset would land
   // somewhere unrelated in the new list. The offset is reset during render —
@@ -223,9 +240,20 @@ function SongsScreen({
     setScrolledViewMode(viewMode)
     setScrollTop(0)
   }
+  // The grid unmounts entirely while browsing albums/artists (see the render
+  // branch below), so returning to it — or drilling into a group — mounts a
+  // brand new viewport node whose real scrollTop is 0. Without this, the old
+  // scrollTop value survived the round trip and the virtual window sliced
+  // from an offset that no longer matched anything on screen. Same
+  // render-phase reset pattern as the layout switch just above.
+  const [scrolledViewportEl, setScrolledViewportEl] = useState(gridViewportEl)
+  if (gridViewportEl !== scrolledViewportEl) {
+    setScrolledViewportEl(gridViewportEl)
+    setScrollTop(0)
+  }
   useLayoutEffect(() => {
     if (gridViewportRef.current) gridViewportRef.current.scrollTop = 0
-  }, [viewMode])
+  }, [viewMode, gridViewportEl])
 
   // Tile height is art (colWidth - 20px padding) + text block (60px incl. padding);
   // row stride adds the grid gap. Bars are a single column of fixed-height rows.
@@ -644,7 +672,7 @@ function SongsScreen({
             {/* The side padding exists so hover-scaled tiles and their selection
                 rings aren't clipped. Bars neither scale nor ring-offset, so
                 they give the width back to the row — worth ~16px on a phone. */}
-            <div ref={gridViewportRef} className={`h-full overflow-y-auto relative z-[1] pt-3 pb-3 ${isBars ? 'px-1' : 'px-3'}`}>
+            <div ref={setGridViewport} className={`h-full overflow-y-auto relative z-[1] pt-3 pb-3 ${isBars ? 'px-1' : 'px-3'}`}>
               <div style={{ paddingTop: `${paddingTop}px`, paddingBottom: `${paddingBottom}px` }}>
                 <div className="grid" style={{ gridTemplateColumns: `repeat(${virtualColumns}, minmax(0, 1fr))`, gap: `${virtualGap}px` }}>
               {renderedItems.map((song) => {

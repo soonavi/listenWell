@@ -28,6 +28,8 @@ import AuthScreen from './components/AuthScreen'
 import LegalModal from './components/LegalModal'
 import Equalizer from './components/Equalizer'
 import ListeningLogScreen from './components/ListeningLogScreen'
+import WhatsNewModal from './components/WhatsNewModal'
+import { STORAGE_KEY as WHATS_NEW_KEY, shouldPrompt, releasesSince } from './utils/whatsNew'
 import { THEMES, normalizeThemeId, themeTone } from './utils/themes'
 import CoverCropModal from './components/CoverCropModal'
 import CommandPalette from './components/CommandPalette'
@@ -223,7 +225,14 @@ const VOLUME_STEP = 0.05
 // Per-account upload cap. Temporary while limits/monetization are decided.
 const MAX_UPLOADS = 50
 // Owner accounts exempt from the upload cap
-const UNLIMITED_UPLOAD_EMAILS = ['attakhelicoptir@gmail.com']
+const UNLIMITED_UPLOAD_EMAILS = ['attakhelicoptir@gmail.com', 'tonytcr2006@gmail.com', 'davidle826@gmail.com']
+// How many songs may be added in a single go. Separate from the account cap
+// above, and applied to every account including the exempt ones: this one is
+// about the work one batch does, not about how much a library may hold. Every
+// file in a batch is tag-read, hashed and uploaded in the same pass, so a
+// dropped folder holds the app for as long as it takes and gives a single
+// failure many more ways to leave the upload half-finished.
+const MAX_UPLOADS_AT_ONCE = 5
 
 function App() {
   const [user, setUser] = useState(null)
@@ -303,6 +312,10 @@ function App() {
   const [repeat, setRepeat] = useState(() => safeGetStorage('listenwell-repeat', 'off'))
   const [showNowPlaying, setShowNowPlaying] = useState(false)
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
+  // null until there is something to say; then 'prompt' (asking whether they
+  // want the briefing) or 'notes' (giving it).
+  const [whatsNewMode, setWhatsNewMode] = useState(null)
+  const [whatsNewReleases, setWhatsNewReleases] = useState([])
   const [volumeNormalization, setVolumeNormalization] = useState(() => safeGetStorage('listenwell-vnorm', 'true') !== 'false')
   const [playCounts, setPlayCounts] = useState(() => parseStoredJSON('listenwell-playcounts', {}))
   const [playlistAccentOverride, setPlaylistAccentOverride] = useState(null)
@@ -342,7 +355,6 @@ function App() {
     return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 }
   })
   const [isDraggingSettings, setIsDraggingSettings] = useState(false)
-  const [eqBands, setEqBands] = useState(Array.from({ length: 12 }, () => 0.3))
   const [showAccountDrawer, setShowAccountDrawer] = useState(false)
   const [showLogoMenu, setShowLogoMenu] = useState(false)
   const [songsBgUrl, setSongsBgUrl] = useState(() => safeGetStorage('listenwell-songs-bg', null))
@@ -369,8 +381,11 @@ function App() {
   const logoMenuRef = useRef(null)
   const nowPlayingMenuRef = useRef(null)
   const stateRef = useRef({})
-  // Position to restore when the next src assignment is a re-signed URL for the
-  // track already playing, rather than a genuine track change.
+  // { id, at } — position to restore when the next src assignment is a re-signed
+  // URL for the track already playing, rather than a genuine track change. The
+  // id is carried so it can be checked: a listener who picks another song while
+  // the re-sign is in flight was otherwise dropped into the new track at the old
+  // one's position, and past the end of it if the new track was shorter.
   const resumeAtRef = useRef(null)
   // { id, tries } — caps re-sign attempts so a genuinely broken file doesn't loop.
   const audioRecoveryRef = useRef({ id: null, tries: 0 })
@@ -403,6 +418,9 @@ function App() {
   const crossfadeArmedRef = useRef(false)
   const handleNextRef = useRef(null)
   const handlePrevRef = useRef(null)
+  // Live handles for the memoized command palette lists, which must not list
+  // these re-created-every-render functions among their dependencies.
+  const paletteHandlersRef = useRef({})
   // A play counts only once it passes the halfway mark; reset each new play.
   const hasCountedRef = useRef(false)
   // Per-song fields not stored in the tracks table (description, gainDb, bpm),
@@ -430,10 +448,82 @@ function App() {
 
     return () => subscription.unsubscribe()
   }, [])
-  
+
+  // "What's new", resolved once at startup. The stored version has to be read
+  // before it is overwritten: the notes worth showing are exactly the gap
+  // between the build this install last saw and the one it is running now.
+  //
+  // A device with nothing stored is on its first launch, so it is recorded
+  // silently — a new user has no "before" to be briefed on, and the next
+  // update is the first one that should say anything. The modal itself sits
+  // below the auth gate, so nothing appears over the login screen.
+  useEffect(() => {
+    const seen = safeGetStorage(WHATS_NEW_KEY, null)
+    if (!seen) { safeSetStorage(WHATS_NEW_KEY, __APP_VERSION__); return }
+    if (!shouldPrompt(seen, __APP_VERSION__)) return
+    setWhatsNewReleases(releasesSince(seen, __APP_VERSION__))
+    setWhatsNewMode('prompt')
+  }, [])
+
+  // Marking the version seen on the way out — whichever way they leave — is
+  // what keeps the prompt from returning for this build.
+  const closeWhatsNew = useCallback(() => {
+    safeSetStorage(WHATS_NEW_KEY, __APP_VERSION__)
+    setWhatsNewMode(null)
+  }, [])
+
+  // Which account the state in memory belongs to. Compared rather than merely
+  // truthiness-checked because the first sign-in of a fresh browser has to be
+  // left alone: there is no previous account, and loadUserState deliberately
+  // migrates whatever this device already had up to the new account.
+  const loadedUserIdRef = useRef(null)
+
+  // Wipe per-account state the moment the signed-in identity changes (which
+  // includes signing out, where it changes to nothing). Without this the next
+  // account inherited the last one's library — signed URLs and all — and, worse,
+  // loadUserState would write those playlists, loved songs and profile into the
+  // new account as if they were its own. Declared above the two loaders below so
+  // it runs first in the commit that sees the change.
+  // Device and appearance preferences are left alone: theme, volume, speed, EQ,
+  // aurora/glow/blur and layout belong to the machine, not the account.
+  useEffect(() => {
+    const previousUserId = loadedUserIdRef.current
+    const nextUserId = user?.id ?? null
+    loadedUserIdRef.current = nextUserId
+    if (!previousUserId || previousUserId === nextUserId) return
+
+    audioRef.current?.pause()
+    setIsPlaying(false)
+    setCurrentTrackIndex(null)
+    setSelectedSongIndex(null)
+    setSongs([])
+    setSongQueue([])
+    setPlaylists([])
+    setLovedSongIds([])
+    setPlayCounts({})
+    setRecentItems([])
+    setSongMeta({})
+    setSavedPresets([])
+    setSongsBgUrl(null)
+    setProfilePicUrl(null)
+    setDisplayName('')
+
+    // The local cache is per-account too. Some of these have no persistence
+    // effect to clear them (the profile picture) or only write when non-empty
+    // (the display name), so they are removed here rather than left to settle.
+    try {
+      if (typeof window === 'undefined') return
+      for (const key of [
+        'listenwell-playlists', 'listenwell-loved', 'listenwell-playcounts',
+        'listenwell-recent', 'listenwell-songmeta', 'listenwell-presets',
+        'listenwell-songs-bg', 'listenwell-profile-pic', 'listenwell-display-name',
+      ]) window.localStorage.removeItem(key)
+    } catch { /* ignore storage failures */ }
+  }, [user])
+
   useEffect(() => {
     if (!user) return
-  
+
     // Device-only songs live in Cache Storage and localStorage, so they have to
     // be folded back in by hand — the tracks table has never heard of them. A
     // record whose audio is no longer in the cache is skipped rather than shown
@@ -462,13 +552,18 @@ function App() {
         .select('*')
         .eq('user_id', user.id)
 
+      // This runs on sign-in, so the device-only songs are the whole library
+      // when the table has nothing to add — even when there are none of them.
+      // Keeping the old list on an empty result left the previous account's
+      // tracks, and their still-valid signed URLs, sitting in front of whoever
+      // signed in next.
       if (error) {
         console.error('Failed to load library:', error.message)
-        if (localSongs.length > 0) setSongs(localSongs)
+        setSongs(localSongs)
         return
       }
       if (!tracks?.length) {
-        if (localSongs.length > 0) setSongs(localSongs)
+        setSongs(localSongs)
         return
       }
 
@@ -795,18 +890,23 @@ function App() {
     const img = new Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      canvas.width = 40
-      canvas.height = 40
-      ctx.drawImage(img, 0, 0, 40, 40)
-      const pixels = ctx.getImageData(0, 0, 40, 40).data
-      let r = 0; let g = 0; let b = 0; let count = 0
-      for (let i = 0; i < pixels.length; i += 16) {
-        r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2]; count++
-      }
-      setAccentColor(`${Math.round(r / count)} ${Math.round(g / count)} ${Math.round(b / count)}`)
+      // A cover served without the CORS header taints the canvas and makes
+      // getImageData throw. Fall back to the default violet rather than letting
+      // a SecurityError escape the load handler unhandled.
+      try {
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        canvas.width = 40
+        canvas.height = 40
+        ctx.drawImage(img, 0, 0, 40, 40)
+        const pixels = ctx.getImageData(0, 0, 40, 40).data
+        let r = 0; let g = 0; let b = 0; let count = 0
+        for (let i = 0; i < pixels.length; i += 16) {
+          r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2]; count++
+        }
+        setAccentColor(`${Math.round(r / count)} ${Math.round(g / count)} ${Math.round(b / count)}`)
+      } catch { setAccentColor('139 92 246') }
     }
     img.src = coverUrl
   }, [])
@@ -861,7 +961,7 @@ function App() {
     }
     audioRecoveryRef.current = { id: song.id, tries: attempts + 1 }
 
-    resumeAtRef.current = audio.currentTime || 0
+    resumeAtRef.current = { id: song.id, at: audio.currentTime || 0 }
     const freshUrl = await resignSong(song.id)
     if (!freshUrl) {
       resumeAtRef.current = null
@@ -893,6 +993,16 @@ function App() {
     const allAudioFiles = files.filter((f) => f.type.startsWith('audio/') || f.type === 'video/webm' || f.type === 'video/ogg' || f.name.match(/\.(webm|ogg|opus|m4a)$/i))
     if (allAudioFiles.length === 0) {
       if (files.length > 0) showUploadNotice('error', 'No supported audio files were selected.')
+      return
+    }
+
+    // Refused outright rather than quietly taking the first five: which five
+    // is the listener's choice to make, and a batch trimmed by file order is
+    // the kind of thing you only notice later, by a song missing. Re-entry
+    // from the destination and duplicate prompts passes an already-capped
+    // list, so this reads as a no-op on the second pass.
+    if (allAudioFiles.length > MAX_UPLOADS_AT_ONCE) {
+      showUploadNotice('error', `You can add up to ${MAX_UPLOADS_AT_ONCE} songs at a time — you chose ${allAudioFiles.length}. Select ${MAX_UPLOADS_AT_ONCE} or fewer and try again.`)
       return
     }
 
@@ -1217,9 +1327,25 @@ function App() {
     processAudioFiles(prompt.files, { destination })
   }, [destinationPrompt, processAudioFiles])
 
+  // The library and the two playheads as the delete path needs to see them:
+  // songs the user picked out are identified by id, because a batch delete runs
+  // handleDeleteSong in a synchronous loop and no render lands between passes.
+  // Index arithmetic against the render's own `songs`/`currentTrackIndex` was
+  // therefore repeated against a list that had already shrunk, which walked the
+  // playhead off the end of the library and detached the UI from the <audio>
+  // element still playing. Each pass updates this in place for the next one.
+  const deleteViewRef = useRef(null)
+  deleteViewRef.current = {
+    songs,
+    playingId: currentTrackIndex === null ? null : songs[currentTrackIndex]?.id ?? null,
+    selectedId: selectedSongIndex === null ? null : songs[selectedSongIndex]?.id ?? null,
+  }
+
   const handleDeleteSong = (songId) => {
-    const idx = songs.findIndex((s) => s.id === songId)
+    const view = deleteViewRef.current
+    const idx = view.songs.findIndex((s) => s.id === songId)
     if (idx === -1) return
+    const remaining = view.songs.filter((s) => s.id !== songId)
     // Don't leave the audio sitting in the device cache for a song that no
     // longer exists.
     if (offlineSongIdsRef.current.includes(songId)) {
@@ -1228,19 +1354,28 @@ function App() {
     // For a device-only song that cache was the only copy, so this is the whole
     // deletion — the Supabase pass below finds nothing and does nothing.
     removeLocalSong(songId)
-    if (currentTrackIndex === idx) {
+
+    let playingId = view.playingId
+    if (playingId === songId) {
       audioRef.current?.pause()
       setIsPlaying(false)
       setCurrentTrackIndex(null)
-    } else if (currentTrackIndex !== null && currentTrackIndex > idx) {
-      setCurrentTrackIndex(currentTrackIndex - 1)
+      playingId = null
+    } else if (playingId !== null) {
+      setCurrentTrackIndex(remaining.findIndex((s) => s.id === playingId))
     }
-    if (selectedSongIndex === idx) {
-      const remaining = songs.length - 1
-      setSelectedSongIndex(remaining > 0 ? Math.min(idx, remaining - 1) : null)
-    } else if (selectedSongIndex !== null && selectedSongIndex > idx) {
-      setSelectedSongIndex(selectedSongIndex - 1)
+
+    let selectedId = view.selectedId
+    if (selectedId === songId) {
+      // Deleting the selected row leaves the selection on its neighbour.
+      const nextSelected = remaining.length > 0 ? Math.min(idx, remaining.length - 1) : null
+      selectedId = nextSelected === null ? null : remaining[nextSelected].id
+      setSelectedSongIndex(nextSelected)
+    } else if (selectedId !== null) {
+      setSelectedSongIndex(remaining.findIndex((s) => s.id === selectedId))
     }
+
+    deleteViewRef.current = { songs: remaining, playingId, selectedId }
     setSongs((prev) => prev.filter((s) => s.id !== songId))
     setLovedSongIds((prev) => prev.filter((id) => id !== songId))
     setPlaylists((prev) =>
@@ -1353,9 +1488,27 @@ function App() {
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
-      const dataUrl = ev.target.result
-      setProfilePicUrl(dataUrl)
-      safeSetStorage('listenwell-profile-pic', dataUrl)
+      const store = (dataUrl) => {
+        setProfilePicUrl(dataUrl)
+        safeSetStorage('listenwell-profile-pic', dataUrl)
+      }
+      // Downscale first, the same way the songs background does. A phone photo
+      // stored raw is ~6.7 MB of base64: it blows the localStorage quota, and
+      // because the quota then stays full every later write — playlists, loved
+      // songs, play counts — fails silently too. It also rides along in the
+      // debounced user_state upsert, so nudging the volume re-uploaded the photo.
+      const img = new Image()
+      img.onload = () => {
+        const maxDim = 320
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+        store(canvas.toDataURL('image/jpeg', 0.82))
+      }
+      img.onerror = () => store(ev.target.result)
+      img.src = ev.target.result
     }
     reader.readAsDataURL(file)
   }
@@ -1424,6 +1577,12 @@ function App() {
   const nowPlayingId = nowPlaying?.id
   const nowPlayingUrl = nowPlaying?.url
   const nowPlayingHasPeaks = Boolean(nowPlaying?.peaks)
+  // The colour extractors key off this rather than the songs array: `songs` gets
+  // a new reference on every metadata write — peaks landing, gainDb and bpm from
+  // the analyser, duration from onLoadedMetadata — so during an upload of a
+  // dozen files they were re-decoding and re-averaging the same cover over and
+  // over, each pass costing a render.
+  const nowPlayingCoverUrl = nowPlaying?.coverUrl ?? null
   // Only ever attempt a given track once per session. Without this, a track
   // the browser cannot decode re-downloaded itself in full on every single
   // play, forever.
@@ -1494,14 +1653,17 @@ function App() {
     audio.src = currentTrackUrl
     // Normally a new src means a new track and position resets. A re-signed URL
     // is the same track though, so honour a pending resume position instead of
-    // yanking the listener back to the start.
-    const resumeAt = resumeAtRef.current
+    // yanking the listener back to the start — but only if it belongs to the
+    // track actually being loaded. Anything else is a stale position from a
+    // re-sign the listener has already moved on from.
+    const pendingResume = resumeAtRef.current
     resumeAtRef.current = null
-    audio.currentTime = resumeAt ?? 0
+    const resumeAt = pendingResume && pendingResume.id === nowPlayingId ? pendingResume.at : 0
+    audio.currentTime = resumeAt
     // The 10fps ticker is the only currentTime writer now (the redundant
     // onTimeUpdate handler re-rendered the whole app on top of it); reset the
     // displayed position here so a paused track switch still shows 0:00.
-    setCurrentTime(resumeAt ?? 0)
+    setCurrentTime(resumeAt)
     // A new src resets playbackRate to 1; re-apply the user's speed and keep
     // pitch natural rather than chipmunked.
     audio.preservesPitch = true
@@ -2102,9 +2264,12 @@ function App() {
   // Extract dominant color from album art when artColorExtract is enabled
   useEffect(() => {
     if (!artColorExtract) { setAccentColor('139 92 246'); return }
-    const coverUrl = songs[currentTrackIndex]?.coverUrl
-    if (!coverUrl) { setAccentColor('139 92 246'); return }
+    if (!nowPlayingCoverUrl) { setAccentColor('139 92 246'); return }
     const img = new Image()
+    // Covers are cross-origin signed URLs. Without this the canvas is tainted,
+    // getImageData throws, and the catch below quietly resets to violet — which
+    // is why accent extraction never once worked on an uploaded track.
+    img.crossOrigin = 'anonymous'
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas')
@@ -2122,15 +2287,14 @@ function App() {
       } catch { setAccentColor('139 92 246') }
     }
     img.onerror = () => setAccentColor('139 92 246')
-    img.src = coverUrl
-  }, [artColorExtract, currentTrackIndex, songs])
+    img.src = nowPlayingCoverUrl
+  }, [artColorExtract, nowPlayingCoverUrl])
 
   // Dominant colour of the current cover for the mobile mini player background.
   // Always on (independent of the artColorExtract accent toggle); darkened so
   // white text stays readable.
   useEffect(() => {
-    const coverUrl = songs[currentTrackIndex]?.coverUrl
-    if (!coverUrl) { setMiniBarColor('24 21 31'); return }
+    if (!nowPlayingCoverUrl) { setMiniBarColor('24 21 31'); return }
     const img = new Image()
     img.crossOrigin = 'anonymous'
     img.onload = () => {
@@ -2155,8 +2319,8 @@ function App() {
       } catch { setMiniBarColor('24 21 31') }
     }
     img.onerror = () => setMiniBarColor('24 21 31')
-    img.src = coverUrl
-  }, [currentTrackIndex, songs])
+    img.src = nowPlayingCoverUrl
+  }, [nowPlayingCoverUrl])
 
   // Override accent with playlist colour when on playlist-detail page
   useEffect(() => {
@@ -2172,23 +2336,6 @@ function App() {
   useEffect(() => {
     extractAccentFromCover(nowPlaying?.coverUrl)
   }, [nowPlaying?.coverUrl, extractAccentFromCover])
-
-  useEffect(() => {
-    // The Neural Equalizer bars only render inside the open Settings panel, so
-    // only animate them while that panel is actually visible. Running this
-    // interval always re-rendered the whole App 8x/second even when idle.
-    if (!showSettings || settingsTab !== 'playback') return undefined
-    const id = window.setInterval(() => {
-      const base = eqPreset === 'bass' ? 0.68 : eqPreset === 'bright' ? 0.56 : 0.46
-      setEqBands((prev) =>
-        prev.map((_, i) => {
-          const wave = (Math.sin(Date.now() / 260 + i * 0.45) + 1) / 2
-          return Math.max(0.08, Math.min(1, base * 0.4 + wave * base))
-        }),
-      )
-    }, 120)
-    return () => window.clearInterval(id)
-  }, [eqPreset, showSettings, settingsTab])
 
   const SETTINGS_PANEL_W = 320
   const SETTINGS_PANEL_H = 440
@@ -2285,6 +2432,18 @@ function App() {
     }
   }, [isPlaying, currentTrackIndex, runVisualizerFrame])
 
+  // Whether letting the track finish would wrap the library back to its start.
+  // handleNext always wraps, which is right when the listener presses Next but
+  // wrong when the record simply ran out: with repeat off, reaching the end of
+  // the list is the end of the listening. Shuffle has no last track — it keeps
+  // choosing — and a queued song is an explicit instruction to carry on, so
+  // neither counts as the end.
+  const atEndOfLibrary = () => {
+    const { songs: ss, currentTrackIndex: cur, repeat: rep, shuffle: sh, songQueue: sq } = stateRef.current
+    if (rep !== 'off' || sh || sq.length > 0) return false
+    return cur !== null && cur === ss.length - 1
+  }
+
   useEffect(() => {
     if (!isPlaying) return undefined
     let frameId = null
@@ -2309,8 +2468,10 @@ function App() {
           }
 
           // Start the crossfade before the track actually ends so the next song
-          // overlaps the tail. Skipped for repeat-one and single-track libraries.
-          if (cf > 0 && !crossfadeArmedRef.current && rep !== 'one' && (ss.length > 1 || rep === 'all')) {
+          // overlaps the tail. Skipped for repeat-one and single-track libraries,
+          // and for the last track with repeat off — there is nothing to fade
+          // into, and arming it would wrap the list the fade is meant to end.
+          if (cf > 0 && !crossfadeArmedRef.current && rep !== 'one' && (ss.length > 1 || rep === 'all') && !atEndOfLibrary()) {
             if (dur - audio.currentTime <= cf / 1000) {
               crossfadeArmedRef.current = true
               handleNextRef.current?.()
@@ -2358,14 +2519,33 @@ function App() {
       ctx.clearRect(0, 0, W, H)
       const cx = W / 2, cy = H / 2
       const innerR = sphereR + 4
-      const maxBar = Math.max(6, cx - innerR - 2)
-      const bars = 40
+      // Bar geometry is one system: stroke width is fixed (a dial's ticks are
+      // a constant physical width regardless of dial size); bar count instead
+      // scales with the ring's circumference so the arc available per bar —
+      // and so the bar:gap ratio — stays consistent between the small footer
+      // ring and the larger drawer ring.
+      const CORE_W = 4
+      const GLOW_W = 6
+      const NUB = 1.5 // visible resting length at zero amplitude
+      const TARGET_ARC = 9 // px of circumference per bar+gap, measured at innerR
+      const bars = Math.max(16, Math.round((2 * Math.PI * innerR) / TARGET_ARC))
+      // maxBar leaves room for the round line-cap overshoot of the (wider)
+      // glow stroke plus the resting nub, with a small antialiasing buffer,
+      // so a full-amplitude bar can never clip the canvas edge.
+      const maxBar = Math.max(6, cx - innerR - NUB - GLOW_W / 2 - 0.5)
       const t = Date.now() / 1000
 
       // Per-canvas smoothing buffer → fluid, spectrum-analyser motion (fast
       // attack, slow release) instead of the old raw, jittery bars.
       let sm = canvas._eqSmooth
       if (!sm || sm.length !== bars) sm = canvas._eqSmooth = new Float32Array(bars).fill(0.1)
+      // Bar angles are static per (canvas, bar count) — cache them on the
+      // canvas instead of allocating a fresh array every animation frame.
+      let ang = canvas._eqAng
+      if (!ang || ang.length !== bars) {
+        ang = canvas._eqAng = new Float32Array(bars)
+        for (let i = 0; i < bars; i++) ang[i] = (i / bars) * Math.PI * 2 - Math.PI / 2
+      }
 
       // Bars read light/cyan at the core and fade to the accent at the tips —
       // a single radial gradient keeps it cohesive and cheap (one stroke pass).
@@ -2383,7 +2563,6 @@ function App() {
       ctx.lineWidth = 1
       ctx.stroke()
 
-      const ang = new Array(bars)
       for (let i = 0; i < bars; i++) {
         let target
         if (data) {
@@ -2394,13 +2573,12 @@ function App() {
           target = 0.12 + 0.16 * (Math.sin(t * 1.3 + i * 0.55) * 0.5 + 0.5)
         }
         sm[i] += (target - sm[i]) * (target > sm[i] ? 0.5 : 0.14)
-        ang[i] = (i / bars) * Math.PI * 2 - Math.PI / 2
       }
 
       const strokeBars = (widthPx) => {
         ctx.beginPath()
         for (let i = 0; i < bars; i++) {
-          const bLen = sm[i] * maxBar + 1.5
+          const bLen = sm[i] * maxBar + NUB
           const cos = Math.cos(ang[i]), sin = Math.sin(ang[i])
           ctx.moveTo(cx + innerR * cos, cy + innerR * sin)
           ctx.lineTo(cx + (innerR + bLen) * cos, cy + (innerR + bLen) * sin)
@@ -2416,9 +2594,9 @@ function App() {
       ctx.globalAlpha = 0.22
       ctx.shadowColor = `rgba(${r},${g},${b},0.85)`
       ctx.shadowBlur = 7
-      strokeBars(4)
+      strokeBars(GLOW_W)
       ctx.restore()
-      strokeBars(2.5)
+      strokeBars(CORE_W)
     }
 
     const renderOnce = () => {
@@ -2647,6 +2825,41 @@ function App() {
   handleDeleteSongRef.current = handleDeleteSong
   offlineSongIdsRef.current = offlineSongIds
   processAudioFilesRef.current = processAudioFiles
+  paletteHandlersRef.current = { handlePlaySongClick, handlePlayPause, handleToggleRepeat, markRecent }
+
+  // The palette's three lists were rebuilt on every App render, and the memos
+  // inside CommandPalette are keyed on them — so with the palette open and no
+  // query typed, the 10fps playback ticker had it scoring and sorting the entire
+  // library ten times a second. These handlers are re-created each render too,
+  // so the lists reach them through the ref above rather than depending on them.
+  const paletteSongs = useMemo(() => songs.map((song, index) => ({
+    ...song,
+    run: () => paletteHandlersRef.current.handlePlaySongClick(index),
+  })), [songs])
+
+  const palettePlaylists = useMemo(() => resolvedPlaylists.map((playlist) => ({
+    ...playlist,
+    run: () => {
+      setSelectedPlaylistId(playlist.id)
+      setActivePage('playlist-detail')
+      paletteHandlersRef.current.markRecent('playlist', playlist.id)
+    },
+  })), [resolvedPlaylists])
+
+  const paletteActions = useMemo(() => [
+    { id: 'play-pause', label: isPlaying ? 'Pause' : 'Play', hint: 'Playback', run: () => paletteHandlersRef.current.handlePlayPause() },
+    { id: 'next', label: 'Next track', hint: 'Playback', run: () => handleNextRef.current?.() },
+    { id: 'prev', label: 'Previous track', hint: 'Playback', run: () => handlePrevRef.current?.() },
+    { id: 'shuffle', label: 'Toggle shuffle', hint: 'Playback', run: () => setShuffle((v) => !v) },
+    { id: 'repeat', label: 'Cycle repeat mode', hint: 'Playback', run: () => paletteHandlersRef.current.handleToggleRepeat() },
+    { id: 'songs', label: 'Go to Songs', hint: 'Navigate', run: () => setActivePage('songs') },
+    { id: 'playlists', label: 'Go to Playlists', hint: 'Navigate', run: () => setActivePage('playlists') },
+    { id: 'upload', label: 'Go to Upload', hint: 'Navigate', run: () => setActivePage('upload') },
+    { id: 'log', label: 'Open listening log', hint: 'Navigate', run: () => setActivePage('log') },
+    { id: 'smart', label: 'New smart playlist', hint: 'Create', run: createSmartPlaylist },
+    { id: 'shortcuts', label: 'Keyboard shortcuts', hint: 'Help', run: () => setShowKeyboardShortcuts(true) },
+    { id: 'export', label: 'Export library', hint: 'Library', run: handleExportLibrary },
+  ], [isPlaying, createSmartPlaylist, handleExportLibrary])
 
   const handleSeek = (e) => {
     const audio = audioRef.current
@@ -2818,32 +3031,9 @@ function App() {
       {showCommandPalette && (
         <CommandPalette
           onClose={() => setShowCommandPalette(false)}
-          songs={songs.map((song, index) => ({
-            ...song,
-            run: () => handlePlaySongClick(index),
-          }))}
-          playlists={resolvedPlaylists.map((playlist) => ({
-            ...playlist,
-            run: () => {
-              setSelectedPlaylistId(playlist.id)
-              setActivePage('playlist-detail')
-              markRecent('playlist', playlist.id)
-            },
-          }))}
-          actions={[
-            { id: 'play-pause', label: isPlaying ? 'Pause' : 'Play', hint: 'Playback', run: handlePlayPause },
-            { id: 'next', label: 'Next track', hint: 'Playback', run: () => handleNextRef.current?.() },
-            { id: 'prev', label: 'Previous track', hint: 'Playback', run: () => handlePrevRef.current?.() },
-            { id: 'shuffle', label: 'Toggle shuffle', hint: 'Playback', run: () => setShuffle((v) => !v) },
-            { id: 'repeat', label: 'Cycle repeat mode', hint: 'Playback', run: handleToggleRepeat },
-            { id: 'songs', label: 'Go to Songs', hint: 'Navigate', run: () => setActivePage('songs') },
-            { id: 'playlists', label: 'Go to Playlists', hint: 'Navigate', run: () => setActivePage('playlists') },
-            { id: 'upload', label: 'Go to Upload', hint: 'Navigate', run: () => setActivePage('upload') },
-            { id: 'log', label: 'Open listening log', hint: 'Navigate', run: () => setActivePage('log') },
-            { id: 'smart', label: 'New smart playlist', hint: 'Create', run: createSmartPlaylist },
-            { id: 'shortcuts', label: 'Keyboard shortcuts', hint: 'Help', run: () => setShowKeyboardShortcuts(true) },
-            { id: 'export', label: 'Export library', hint: 'Library', run: handleExportLibrary },
-          ]}
+          songs={paletteSongs}
+          playlists={palettePlaylists}
+          actions={paletteActions}
         />
       )}
       {coverCrop && (
@@ -3103,6 +3293,11 @@ function App() {
             // and reset the fade gain, which an earlier crossfade may have left
             // part-way through a ramp.
             restartCurrent()
+          } else if (atEndOfLibrary()) {
+            // Repeat is off and that was the last track: the list has finished.
+            // Pressing Next still wraps — that is the listener asking for it.
+            audioRef.current?.pause()
+            setIsPlaying(false)
           } else if (ss.length > 1 || rep === 'all') {
             handleNext()
           } else {
@@ -3720,29 +3915,6 @@ function App() {
               Close
             </button>
           </div>
-          {/* Where the listening log lives. It used to be reachable only from a
-              card on the Library page, and the sphere inside it was not named
-              anywhere, so neither could be found by looking. */}
-          <div className="flex flex-col gap-1 mb-1">
-            <p className="text-[10px] uppercase tracking-wide text-gray-500 px-1">Your listening</p>
-            <div className="flex gap-1.5">
-              {[
-                { view: 'log', label: 'Listening log', Icon: List },
-                { view: 'sphere', label: 'Listening sphere', Icon: Globe },
-              ].map(({ view, label, Icon }) => (
-                <button
-                  key={view}
-                  type="button"
-                  onClick={() => { setLogView(view); setActivePage('log'); closeSettingsPanel() }}
-                  className="flex-1 flex items-center gap-1.5 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] text-gray-300 hover:border-violet-500/50 hover:text-white hover:bg-violet-500/10 transition-colors"
-                >
-                  <Icon className="w-3.5 h-3.5 shrink-0 text-gray-500" />
-                  <span className="truncate">{label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="flex gap-2 mb-1 text-xs">
             {['playback', 'appearance'].map((tab) => (
               <button
@@ -3835,20 +4007,6 @@ function App() {
                 <div className="relative text-[10px] text-gray-500 h-3">
                   <span className="absolute left-0">Off</span>
                   <span className="absolute right-0">2s</span>
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                <span className="font-medium">Neural Equalizer</span>
-                <div className="neural-panel rounded-xl p-2 border border-white/10">
-                  <div className="flex items-end gap-1 h-14">
-                    {eqBands.map((band, index) => (
-                      <span
-                        key={`${index}-${eqPreset}`}
-                        className="neural-band"
-                        style={{ height: `${Math.round(band * 100)}%` }}
-                      />
-                    ))}
-                  </div>
                 </div>
               </div>
             </div>
@@ -4245,7 +4403,7 @@ function App() {
           type="button"
           onClick={() => setShowAccountDrawer(true)}
           className="relative shrink-0 ml-auto hidden sm:flex items-center justify-center"
-          style={{ width: 112, height: 112 }}
+          style={{ width: 132, height: 132 }}
           title="Profile"
         >
           <canvas
@@ -4400,7 +4558,7 @@ function App() {
 
               {/* Profile card */}
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 flex items-center gap-4">
-                <div className="relative shrink-0 flex items-center justify-center" style={{ width: 140, height: 140 }}>
+                <div className="relative shrink-0 flex items-center justify-center" style={{ width: 160, height: 160 }}>
                   <canvas ref={drawerEqCanvasRef} className="absolute inset-0 w-full h-full" />
                   <label className="relative z-10 cursor-pointer group">
                     <div className="w-28 h-28 rounded-full overflow-hidden border-2 border-white/20 group-hover:border-violet-400/60 transition-colors flex items-center justify-center bg-white/[0.06]">
@@ -4739,6 +4897,32 @@ function App() {
 
                 {settingsModalTab === 'library' && (
                   <>
+                    {/* The sphere is not named anywhere else in the interface, so
+                        without an entry here it can only be found by opening the
+                        log and noticing the view toggle. */}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs text-gray-300 font-medium">Your listening</span>
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        What you have played most, as a ranked list or drawn as a sphere.
+                      </p>
+                      <div className="flex gap-2 mt-1">
+                        {[
+                          { view: 'log', label: 'Listening log', Icon: List },
+                          { view: 'sphere', label: 'Listening sphere', Icon: Globe },
+                        ].map(({ view, label, Icon }) => (
+                          <button
+                            key={view}
+                            type="button"
+                            onClick={() => { setLogView(view); setActivePage('log'); setShowSettingsModal(false) }}
+                            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-[10px] text-xs text-gray-200 border border-white/15 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/40 transition-colors"
+                          >
+                            <Icon className="w-3.5 h-3.5 shrink-0 text-gray-500" />
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="flex flex-col gap-1.5">
                       <span className="text-xs text-gray-300 font-medium">Offline</span>
                       <p className="text-[11px] text-gray-500 leading-relaxed">
@@ -4803,6 +4987,16 @@ function App() {
           <KeyboardShortcutsModal onClose={() => setShowKeyboardShortcuts(false)} />
         )}
       </AnimatePresence>
+
+      <WhatsNewModal
+        open={whatsNewMode !== null}
+        mode={whatsNewMode ?? 'prompt'}
+        releases={whatsNewReleases}
+        version={__APP_VERSION__}
+        onAccept={() => { safeSetStorage(WHATS_NEW_KEY, __APP_VERSION__); setWhatsNewMode('notes') }}
+        onDismiss={closeWhatsNew}
+        onClose={closeWhatsNew}
+      />
 
       {/* Metadata editor — opens after upload and from the song context menu.
           Works on every screen size, unlike the desktop-only Details panel. */}
