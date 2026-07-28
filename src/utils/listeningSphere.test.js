@@ -6,6 +6,9 @@ import {
   latticePoint,
   project,
   dotRadius,
+  artRadius,
+  countWithArt,
+  coverCrop,
   toneColor,
   depthAlpha,
   pickNode,
@@ -143,6 +146,26 @@ test('dot area, not diameter, tracks the count', () => {
   const quarter = dotRadius(0.25, 100) - dotRadius(0, 100)
   assert.ok(Math.abs(quarter - r / 2) < 1e-9, 'a quarter of the plays is half the radius')
   assert.ok(dotRadius(2, 100) === dotRadius(1, 100), 'weight is clamped')
+})
+
+test('cover art keeps the size curve but starts big enough to see', () => {
+  const quarter = artRadius(0.25, 100) - artRadius(0, 100)
+  const full = artRadius(1, 100) - artRadius(0, 100)
+  assert.ok(Math.abs(quarter - full / 2) < 1e-9, 'still area, not diameter')
+  assert.ok(artRadius(0, 100) > dotRadius(0, 100) * 2, 'the smallest cover is legible')
+  assert.ok(artRadius(1, 100) > dotRadius(1, 100), 'and the largest is larger too')
+})
+
+test('nodes without a cover are counted so a dead toggle can be avoided', () => {
+  assert.equal(countWithArt([{ coverUrl: 'a' }, { coverUrl: null }, { coverUrl: 'b' }]), 2)
+  assert.equal(countWithArt([{ coverUrl: null }]), 0)
+  assert.equal(countWithArt(), 0)
+})
+
+test('a cover crop is the centre square of the image', () => {
+  assert.deepEqual(coverCrop(300, 300), { sx: 0, sy: 0, side: 300 })
+  assert.deepEqual(coverCrop(400, 300), { sx: 50, sy: 0, side: 300 }, 'wide art crops the sides')
+  assert.deepEqual(coverCrop(300, 500), { sx: 0, sy: 100, side: 300 }, 'tall art crops top and bottom')
 })
 
 test('the colour ramp runs violet to cyan', () => {

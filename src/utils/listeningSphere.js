@@ -171,6 +171,34 @@ export function dotRadius(weight, radius) {
   return min + (max - min) * Math.sqrt(Math.max(0, Math.min(1, weight)))
 }
 
+/**
+ * Radius for a node drawn as its cover art.
+ *
+ * Same square-root-of-the-count curve as a dot, over a larger range: a 4px
+ * disc is a fine dot and a useless photograph, so the floor is raised until
+ * the smallest cover is still recognisable. Sizes stay comparable to each
+ * other, which is what the encoding claims — they are simply all bigger.
+ */
+export function artRadius(weight, radius) {
+  const min = radius * 0.030
+  const max = radius * 0.078
+  return min + (max - min) * Math.sqrt(Math.max(0, Math.min(1, weight)))
+}
+
+/** How many of these nodes actually have a cover to draw. */
+export function countWithArt(nodes = []) {
+  return nodes.reduce((total, node) => total + (node.coverUrl ? 1 : 0), 0)
+}
+
+/**
+ * The square crop of an image that fills a circle without stretching it —
+ * canvas has no object-fit, so the centre square is worked out by hand.
+ */
+export function coverCrop(naturalWidth, naturalHeight) {
+  const side = Math.min(naturalWidth, naturalHeight)
+  return { sx: (naturalWidth - side) / 2, sy: (naturalHeight - side) / 2, side }
+}
+
 /** Violet at the most played (tone 0) through to cyan at the least (tone 1). */
 export function toneColor(tone, alpha = 1) {
   const t = Math.max(0, Math.min(1, tone))

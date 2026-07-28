@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react'
 
-import { project, dotRadius, toneColor, depthAlpha, pickNode } from '@/utils/listeningSphere'
+import { project, dotRadius, artRadius, coverCrop, toneColor, depthAlpha, pickNode } from '@/utils/listeningSphere'
 
 const TAU = Math.PI * 2
 const PITCH_LIMIT = 1.25
@@ -49,13 +49,17 @@ function fitText(ctx, text, maxWidth) {
  * as a real list of buttons (visually hidden, fully focusable), and the log
  * view is the same numbers again in plain text.
  */
-function ListeningSphere({ nodes = [], selectedKey = null, onSelect, modeLabel = 'entries' }) {
+function ListeningSphere({ nodes = [], selectedKey = null, onSelect, showArt = false, modeLabel = 'entries' }) {
   const wrapRef = useRef(null)
   const canvasRef = useRef(null)
   const nodesRef = useRef(nodes)
   const selectedRef = useRef(selectedKey)
   const reducedMotionRef = useRef(false)
   const onSelectRef = useRef(onSelect)
+  const showArtRef = useRef(showArt)
+  // Decoded covers, keyed by their URL so two nodes sharing one — every track
+  // on the same record — decode it once between them.
+  const coversRef = useRef(new Map())
 
   const viewRef = useRef({
     rotX: -0.22,
@@ -84,7 +88,31 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, modeLabel =
 
   useEffect(() => { nodesRef.current = nodes; markDirty() }, [nodes])
   useEffect(() => { selectedRef.current = selectedKey; markDirty() }, [selectedKey])
+  useEffect(() => { showArtRef.current = showArt; markDirty() }, [showArt])
   useEffect(() => { onSelectRef.current = onSelect }, [onSelect])
+
+  // Decode the covers this mode needs, once each, and repaint as they land.
+  //
+  // No crossOrigin is set: a signed Supabase URL that answers without the CORS
+  // header would fail to load at all with it, and a cover that doesn't appear
+  // is a worse outcome than a tainted canvas. Nothing here reads pixels back.
+  useEffect(() => {
+    if (!showArt) return
+    const cache = coversRef.current
+    let live = true
+    for (const node of nodes) {
+      if (!node.coverUrl || cache.has(node.coverUrl)) continue
+      const image = new Image()
+      cache.set(node.coverUrl, image)
+      image.decoding = 'async'
+      image.onload = () => { if (live) markDirty() }
+      // A cover that won't load leaves the node as a plain dot, which is the
+      // same thing an untagged node does. Nothing to report.
+      image.onerror = () => { cache.delete(node.coverUrl) }
+      image.src = node.coverUrl
+    }
+    return () => { live = false }
+  }, [nodes, showArt])
 
   useEffect(() => {
     const query = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -139,7 +167,9 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, modeLabel =
       ctx.stroke()
     }
 
-    // Project every node, then paint back to front so near dots overlap far.
+    // Project every node, then paint back to front so near ones overlap far.
+    const art = showArtRef.current
+    const sizeOf = art ? artRadius : dotRadius
     const points = nodesRef.current.map((node) => {
       const projected = project(node, camera)
       return {
@@ -147,7 +177,7 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, modeLabel =
         sx: projected.sx,
         sy: projected.sy,
         z: projected.z,
-        r: Math.max(1.2, dotRadius(node.weight, radius) * projected.scale),
+        r: Math.max(1.2, sizeOf(node.weight, radius) * projected.scale),
       }
     })
     points.sort((a, b) => a.z - b.z)
@@ -157,6 +187,8 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, modeLabel =
       const isSelected = point.node.key === selectedRef.current
       const isHovered = point.node.key === view.hoverKey
       const alpha = depthAlpha(point.z)
+      const cover = art && point.node.coverUrl ? coversRef.current.get(point.node.coverUrl) : null
+      const drawable = cover && cover.complete && cover.naturalWidth > 0
 
       if (isSelected || isHovered) {
         ctx.beginPath()
@@ -165,12 +197,39 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, modeLabel =
         ctx.fill()
       }
 
-      ctx.beginPath()
-      ctx.arc(point.sx, point.sy, point.r, 0, TAU)
-      ctx.fillStyle = toneColor(point.node.tone, alpha * (isSelected || isHovered ? 1 : 0.82))
-      ctx.fill()
+      if (drawable) {
+        // The cover fills the same circle the dot would have, so size still
+        // reads as the play count. Rank keeps its colour as the rim, since
+        // the artwork has taken the fill.
+        const crop = coverCrop(cover.naturalWidth, cover.naturalHeight)
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(point.sx, point.sy, point.r, 0, TAU)
+        ctx.clip()
+        ctx.globalAlpha = alpha
+        ctx.drawImage(
+          cover,
+          crop.sx, crop.sy, crop.side, crop.side,
+          point.sx - point.r, point.sy - point.r, point.r * 2, point.r * 2,
+        )
+        ctx.restore()
+
+        ctx.beginPath()
+        ctx.arc(point.sx, point.sy, point.r, 0, TAU)
+        ctx.lineWidth = Math.max(1, point.r * 0.11)
+        ctx.strokeStyle = toneColor(point.node.tone, alpha * (isSelected || isHovered ? 1 : 0.85))
+        ctx.stroke()
+      } else {
+        // No cover, or none yet decoded: the plain dot, at the same size.
+        ctx.beginPath()
+        ctx.arc(point.sx, point.sy, point.r, 0, TAU)
+        ctx.fillStyle = toneColor(point.node.tone, alpha * (isSelected || isHovered ? 1 : 0.82))
+        ctx.fill()
+      }
 
       if (isSelected) {
+        ctx.beginPath()
+        ctx.arc(point.sx, point.sy, point.r + (drawable ? 2.5 : 0), 0, TAU)
         ctx.lineWidth = 1.5
         ctx.strokeStyle = `rgba(243, 244, 246, ${alpha})`
         ctx.stroke()
@@ -190,7 +249,7 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, modeLabel =
     ctx.textBaseline = 'middle'
     ctx.font = '600 9px Orbitron, system-ui, sans-serif'
     if (ctx.letterSpacing !== undefined) ctx.letterSpacing = '0.16em'
-    const poleGap = dotRadius(1, radius) * 1.5 + 16
+    const poleGap = sizeOf(1, radius) * 1.5 + 16
     for (const [pole, text] of [[1, 'MOST PLAYED'], [-1, 'LEAST PLAYED']]) {
       const projected = project({ x: 0, y: pole, z: 0 }, camera)
       const ty = projected.sy - pole * poleGap
@@ -241,8 +300,11 @@ function ListeningSphere({ nodes = [], selectedKey = null, onSelect, modeLabel =
       }
       if (!detailed && collides(box)) continue
 
-      // The reading you asked for is never allowed to be hard to read.
+      // The reading you asked for is never allowed to be hard to read. With
+      // covers on, every label needs the same backing: the space behind it is
+      // opaque artwork rather than the near-empty void the dots sit in.
       if (detailed) scrim(ctx, { ...box, x2: Math.max(box.x2, left + ctx.measureText(detail).width + 4) })
+      else if (art) scrim(ctx, box)
 
       ctx.textAlign = flip ? 'right' : 'left'
       ctx.fillStyle = `rgba(243, 244, 246, ${alpha})`

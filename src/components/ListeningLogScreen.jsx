@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react'
-import { Music2, ArrowLeft, List, Globe, Play } from 'lucide-react'
+import { Music2, ArrowLeft, List, Globe, Play, Image as ImageIcon, Circle } from 'lucide-react'
 
 import { buildListeningLog, formatDuration } from '@/utils/listeningLog'
-import { buildSphereNodes, toneColor } from '@/utils/listeningSphere'
+import { buildSphereNodes, toneColor, countWithArt } from '@/utils/listeningSphere'
 import ListeningSphere from '@/components/ListeningSphere'
 
 const SPHERE_MODES = [
@@ -22,6 +22,7 @@ const SPHERE_MODES = [
 function ListeningLogScreen({ songs = [], playCounts = {}, onBack, onPlaySong }) {
   const [view, setView] = useState('log')
   const [sphereMode, setSphereMode] = useState('artists')
+  const [sphereArt, setSphereArt] = useState(false)
   const [selectedKey, setSelectedKey] = useState(null)
 
   const log = useMemo(() => buildListeningLog(songs, playCounts), [songs, playCounts])
@@ -96,6 +97,8 @@ function ListeningLogScreen({ songs = [], playCounts = {}, onBack, onPlaySong })
           onChangeMode={(next) => { setSphereMode(next); setSelectedKey(null) }}
           selected={selected}
           onSelect={(node) => setSelectedKey(node ? node.key : null)}
+          showArt={sphereArt}
+          onChangeShowArt={setSphereArt}
           songsById={songsById}
           playCounts={playCounts}
           onPlaySong={onPlaySong}
@@ -167,7 +170,9 @@ function ListeningLogScreen({ songs = [], playCounts = {}, onBack, onPlaySong })
  * The globe, its mode switch and the reading panel beside it. Stacks on a
  * phone: sphere above, panel below, both scrollable within their own box.
  */
-function SphereView({ sphere, mode, modeNoun, onChangeMode, selected, onSelect, songsById, playCounts, onPlaySong }) {
+function SphereView({ sphere, mode, modeNoun, onChangeMode, selected, onSelect, showArt, onChangeShowArt, songsById, playCounts, onPlaySong }) {
+  // A library with no cover art anywhere would give the toggle nothing to do.
+  const withArt = countWithArt(sphere.nodes)
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -183,6 +188,29 @@ function SphereView({ sphere, mode, modeNoun, onChangeMode, selected, onSelect, 
               }`}
             >
               {label}
+            </button>
+          ))}
+        </div>
+        {/* Dots or the actual artwork. Disabled outright when this mode has no
+            covers to show, rather than offering a switch that does nothing. */}
+        <div className="flex items-center rounded-full border border-white/10 bg-white/[0.04] p-0.5" role="group" aria-label="Node style">
+          {[
+            { value: false, label: 'Plain dots', Icon: Circle },
+            { value: true, label: 'Cover art', Icon: ImageIcon },
+          ].map(({ value, label, Icon }) => (
+            <button
+              key={String(value)}
+              type="button"
+              title={value && withArt === 0 ? 'No cover art on these yet' : label}
+              aria-label={label}
+              aria-pressed={showArt === value}
+              disabled={value && withArt === 0}
+              onClick={() => onChangeShowArt(value)}
+              className={`p-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                showArt === value ? 'bg-violet-500/15 text-violet-300' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
             </button>
           ))}
         </div>
@@ -212,6 +240,7 @@ function SphereView({ sphere, mode, modeNoun, onChangeMode, selected, onSelect, 
               nodes={sphere.nodes}
               selectedKey={selected?.key ?? null}
               onSelect={onSelect}
+              showArt={showArt && withArt > 0}
               modeLabel={modeNoun}
             />
           )}
@@ -220,7 +249,7 @@ function SphereView({ sphere, mode, modeNoun, onChangeMode, selected, onSelect, 
         <aside className="flex-1 min-h-0 lg:flex-none lg:w-80 rounded-2xl border border-white/[0.06] bg-white/[0.02] glass-card overflow-y-auto">
           {selected
             ? <SphereReading node={selected} songsById={songsById} playCounts={playCounts} onPlaySong={onPlaySong} />
-            : <SphereLegend sphere={sphere} modeNoun={modeNoun} />}
+            : <SphereLegend sphere={sphere} modeNoun={modeNoun} showArt={showArt} withArt={withArt} />}
         </aside>
       </div>
     </div>
@@ -228,7 +257,7 @@ function SphereView({ sphere, mode, modeNoun, onChangeMode, selected, onSelect, 
 }
 
 /** How to read the globe, shown until something is selected. */
-function SphereLegend({ sphere, modeNoun }) {
+function SphereLegend({ sphere, modeNoun, showArt, withArt }) {
   return (
     <div className="p-4 flex flex-col gap-3">
       <p className="text-[11px] uppercase tracking-wide text-gray-500">Reading the sphere</p>
@@ -242,7 +271,7 @@ function SphereLegend({ sphere, modeNoun }) {
           <dd className="text-gray-300 flex-1">Plays. Area, not width, tracks the count.</dd>
         </div>
         <div className="flex gap-3">
-          <dt className="w-16 shrink-0 text-gray-500">Colour</dt>
+          <dt className="w-16 shrink-0 text-gray-500">{showArt ? 'Rim' : 'Colour'}</dt>
           <dd className="text-gray-300 flex-1">
             <span className="inline-flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full" style={{ background: toneColor(0, 1) }} />
@@ -257,6 +286,11 @@ function SphereLegend({ sphere, modeNoun }) {
       <p className="text-[11px] text-gray-600 border-t border-white/[0.06] pt-3">
         Drag to turn, scroll or pinch to zoom, tap a dot to read it. {sphere.totalPlays.toLocaleString()} plays across {sphere.total} {modeNoun}.
       </p>
+      {showArt && withArt < sphere.nodes.length && (
+        <p className="text-[11px] text-gray-600">
+          {sphere.nodes.length - withArt} of these have no cover art, so they stay plain dots.
+        </p>
+      )}
       {sphere.unfiled > 0 && (
         <p className="text-[11px] text-gray-600">
           {sphere.unfiled} played track{sphere.unfiled === 1 ? '' : 's'} carr{sphere.unfiled === 1 ? 'ies' : 'y'} no album name, so {sphere.unfiled === 1 ? 'it is' : 'they are'} not plotted here.
