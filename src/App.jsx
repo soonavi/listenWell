@@ -52,6 +52,8 @@ import {
   Repeat,
   Repeat1,
   ListMusic,
+  List,
+  Globe,
   Keyboard,
   Library,
   Upload,
@@ -286,6 +288,8 @@ function App() {
   const [activePage, setActivePage] = useState('home')
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState('playback')
+  // 'log' | 'sphere' — held here so the settings menu can open either directly.
+  const [logView, setLogView] = useState('log')
   const [playlists, setPlaylists] = useState(() => parseStoredJSON('listenwell-playlists', []))
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null)
   const [songFilter, setSongFilter] = useState('all')
@@ -3326,6 +3330,8 @@ function App() {
               <ListeningLogScreen
                 songs={songs}
                 playCounts={playCounts}
+                view={logView}
+                onChangeView={setLogView}
                 onBack={() => setActivePage('library')}
                 onPlaySong={(songId) => {
                   const index = songs.findIndex((s) => s.id === songId)
@@ -3714,6 +3720,29 @@ function App() {
               Close
             </button>
           </div>
+          {/* Where the listening log lives. It used to be reachable only from a
+              card on the Library page, and the sphere inside it was not named
+              anywhere, so neither could be found by looking. */}
+          <div className="flex flex-col gap-1 mb-1">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500 px-1">Your listening</p>
+            <div className="flex gap-1.5">
+              {[
+                { view: 'log', label: 'Listening log', Icon: List },
+                { view: 'sphere', label: 'Listening sphere', Icon: Globe },
+              ].map(({ view, label, Icon }) => (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => { setLogView(view); setActivePage('log'); closeSettingsPanel() }}
+                  className="flex-1 flex items-center gap-1.5 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] text-gray-300 hover:border-violet-500/50 hover:text-white hover:bg-violet-500/10 transition-colors"
+                >
+                  <Icon className="w-3.5 h-3.5 shrink-0 text-gray-500" />
+                  <span className="truncate">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="flex gap-2 mb-1 text-xs">
             {['playback', 'appearance'].map((tab) => (
               <button
@@ -4175,25 +4204,41 @@ function App() {
           </button>
         </div>
 
-        <button
-          ref={settingsButtonRef}
-          type="button"
-          onClick={() => (showSettings ? closeSettingsPanel() : openSettingsPanel())}
-          aria-label="Settings"
-          className="magnetic-hover ml-1 flex items-center justify-center w-10 h-10 sm:w-16 sm:h-16 rounded-full border border-white/30 text-gray-200 hover:text-white hover:border-white/70 bg-white/5 shrink-0"
-        >
-          <Settings2 className="w-5 h-5 sm:w-8 sm:h-8" />
-        </button>
+        {/* Settings and queue, cut as a slanted pair rather than two circles.
+            The gap between them is the divider. */}
+        <div className="ml-1 flex items-center gap-[3px] shrink-0">
+          <div className="slant-wrap">
+            <button
+              ref={settingsButtonRef}
+              type="button"
+              onClick={() => (showSettings ? closeSettingsPanel() : openSettingsPanel())}
+              aria-label="Settings"
+              data-active={showSettings ? 'true' : 'false'}
+              className={`slant-seg flex items-center justify-center w-[74px] h-16 outline-none ${
+                showSettings ? 'text-violet-200' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              <Settings2 className="w-7 h-7 relative z-10" />
+            </button>
+          </div>
 
-        <button
-          type="button"
-          onClick={() => setShowUpNext((prev) => !prev)}
-          className={`magnetic-hover ml-1 flex flex-col items-center justify-center gap-0.5 w-10 h-10 sm:w-16 sm:h-16 rounded-full border shrink-0 transition-colors ${showUpNext ? 'border-violet-400/60 text-violet-300 bg-violet-500/10' : 'border-white/30 text-gray-400 hover:text-white hover:border-white/70 bg-white/5'}`}
-          title="Up Next"
-        >
-          <ListMusic className="w-5 h-5 sm:w-6 sm:h-6" />
-          <span className="text-[7px] uppercase tracking-wider hidden sm:block">Queue</span>
-        </button>
+          <div className="slant-wrap">
+            <button
+              type="button"
+              onClick={() => setShowUpNext((prev) => !prev)}
+              title="Up Next"
+              aria-label="Up Next"
+              aria-pressed={showUpNext}
+              data-active={showUpNext ? 'true' : 'false'}
+              className={`slant-seg flex flex-col items-center justify-center gap-0.5 w-[86px] h-16 outline-none ${
+                showUpNext ? 'text-violet-200' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              <ListMusic className="w-6 h-6 relative z-10" />
+              <span className="text-[8px] uppercase tracking-[0.16em] relative z-10">Queue</span>
+            </button>
+          </div>
+        </div>
 
         {/* Profile sphere + circular EQ */}
         <button

@@ -620,6 +620,93 @@ select.song-toolbar-select:focus-visible {
   background: rgb(255 255 255 / 0.07);
 }
 
+/* ===== Slanted control segments =====
+   The footer's settings/queue pair. clip-path rather than transform: skewX(),
+   because skewing the button would skew its icon and label with it and the
+   hit area would no longer match what is drawn. Clipping slants the silhouette
+   and the pointer target together while the contents stay upright.
+
+   Two segments cut with the same angle and separated by a small gap leave a
+   slanted seam between them — the divider, without drawing one. */
+.slant-seg {
+  --slant: 13px;
+  position: relative;
+  overflow: hidden;
+  clip-path: polygon(var(--slant) 0, 100% 0, calc(100% - var(--slant)) 100%, 0 100%);
+  background: rgb(255 255 255 / 0.05);
+  transition:
+    background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slant-seg:hover {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.slant-seg[data-active='true'] {
+  background: rgb(var(--accent-rgb) / 0.16);
+}
+
+/* The sweep: a violet band angled to match the cut, parked off the leading
+   edge and travelling across on hover. Inset negatively so it is wider than
+   the segment and never shows its own ends. */
+.slant-seg::after {
+  content: '';
+  position: absolute;
+  /* Exactly the segment, so the translate range is twice its width and half
+     of that range is spent on screen. An oversized layer wastes most of the
+     travel outside the visible area and the band barely appears. */
+  inset: 0;
+  pointer-events: none;
+  /* The band spans the whole layer and peaks at its centre. Narrow stops were
+     tried first and fail here: the layer is only as wide as the segment, so a
+     45–55% band is about ten pixels across and reads as a grey shimmer rather
+     than a violet sweep. */
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgb(var(--accent-rgb) / 0.8) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  /* Not the system's usual exponential ease-out. That curve is so front-loaded
+     that a translating band covers half its travel in ~40ms and reads as a
+     flash rather than a sweep — measured, not guessed. This one still
+     decelerates into its end with no overshoot, but ramps in slowly enough
+     that the band is visibly crossing. */
+  transition: transform 620ms cubic-bezier(0.45, 0.05, 0.35, 1);
+}
+
+.slant-seg:hover::after,
+.slant-seg:focus-visible::after {
+  transform: translateX(100%);
+}
+
+/* Lift and halo live on a wrapper: filter is applied before clip-path on the
+   same element, so a drop-shadow set here would be clipped off along with the
+   corners it is meant to escape. On the parent it sees the clipped silhouette
+   and traces it. */
+.slant-wrap {
+  transition:
+    transform 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slant-wrap:hover,
+.slant-wrap:focus-within {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 0 calc(5px + (13px * var(--glow-softness, 0.65))) rgb(var(--accent-rgb) / 0.45));
+}
+
+/* A 5% white fill is invisible on a light scene. */
+[data-tone='light'] .slant-seg {
+  background: rgb(15 23 42 / 0.07);
+}
+
+[data-tone='light'] .slant-seg:hover {
+  background: rgb(15 23 42 / 0.13);
+}
+
 /* Sort dropdown — explicit dark colors so the native OS widget matches the site */
 .sort-select {
   background-color: rgb(255 255 255 / 0.04);

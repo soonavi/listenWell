@@ -19,8 +19,10 @@ const SPHERE_MODES = [
  * Two readings of the same counts: the log lists them, the sphere plots them.
  * Neither adds anything the other doesn't have.
  */
-function ListeningLogScreen({ songs = [], playCounts = {}, onBack, onPlaySong }) {
-  const [view, setView] = useState('log')
+function ListeningLogScreen({ songs = [], playCounts = {}, onBack, onPlaySong, view = 'log', onChangeView }) {
+  // The view is owned by App so that a menu entry elsewhere can open the log
+  // straight into the sphere rather than landing on the list and hoping the
+  // toggle gets noticed.
   const [sphereMode, setSphereMode] = useState('artists')
   const [sphereArt, setSphereArt] = useState(false)
   const [selectedKey, setSelectedKey] = useState(null)
@@ -74,7 +76,7 @@ function ListeningLogScreen({ songs = [], playCounts = {}, onBack, onPlaySong })
                 title={label}
                 aria-label={label}
                 aria-pressed={view === value}
-                onClick={() => setView(value)}
+                onClick={() => onChangeView?.(value)}
                 className={`p-1.5 rounded-full transition-colors ${view === value ? 'bg-violet-500/15 text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}
               >
                 <Icon className="w-3.5 h-3.5" />
