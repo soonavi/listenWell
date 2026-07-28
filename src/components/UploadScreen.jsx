@@ -50,6 +50,9 @@ function UploadScreen({ onUpload, onDrop }) {
               <p className="text-sm text-gray-300">
                 {isDragging ? 'Release to upload' : 'Drop files here or click to browse'}
               </p>
+              {/* Said before the picker opens, not after: a batch is refused
+                  whole, so finding out at that point means choosing again. */}
+              <p className="text-xs text-gray-600 mt-1.5">Up to 5 songs at a time.</p>
             </div>
           </div>
           <input

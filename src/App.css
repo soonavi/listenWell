@@ -505,17 +505,6 @@ textarea:focus-visible {
     0 0 calc(3px + (6px * var(--glow-softness, 0.65))) rgb(255 255 255 / 0.1);
 }
 
-.neural-panel {
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.02));
-}
-
-.neural-band {
-  flex: 1;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgb(var(--accent-rgb) / 0.95), rgb(34 211 238 / 0.42));
-  transition: height 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
 .song-toolbar {
   background: linear-gradient(120deg, rgb(139 92 246 / 0.1), rgb(34 211 238 / 0.06));
   backdrop-filter: blur(10px);
@@ -669,17 +658,23 @@ select.song-toolbar-select:focus-visible {
     transparent 100%
   );
   transform: translateX(-100%);
-  /* Not the system's usual exponential ease-out. That curve is so front-loaded
-     that a translating band covers half its travel in ~40ms and reads as a
-     flash rather than a sweep — measured, not guessed. This one still
-     decelerates into its end with no overshoot, but ramps in slowly enough
-     that the band is visibly crossing. */
-  transition: transform 620ms cubic-bezier(0.45, 0.05, 0.35, 1);
+  /* No duration on the resting rule, so leaving the segment re-arms the band
+     instantly instead of replaying the crossing backwards — a return sweep
+     nobody asked for, and long enough to be read as one. The snap cannot be
+     seen: the layer is inset 0 inside an overflow: hidden parent, so both
+     -100% and 100% sit wholly outside the clipped box. */
+  transition: transform 0s;
 }
 
+/* The timing belongs to the hover-in gesture alone. Not the system's usual
+   exponential ease-out: that curve is so front-loaded that a translating band
+   covers half its travel in ~40ms and reads as a flash rather than a sweep —
+   measured, not guessed. This one still decelerates into its end with no
+   overshoot, but ramps in slowly enough that the band is visibly crossing. */
 .slant-seg:hover::after,
 .slant-seg:focus-visible::after {
   transform: translateX(100%);
+  transition: transform 620ms cubic-bezier(0.45, 0.05, 0.35, 1);
 }
 
 /* Lift and halo live on a wrapper: filter is applied before clip-path on the
@@ -753,7 +748,6 @@ select.song-toolbar-select:focus-visible {
   background: rgb(15 23 42 / 0.07);
 }
 
-[data-tone='light'] .neural-panel,
 [data-tone='light'] .song-grid-shell {
   background: linear-gradient(180deg, rgb(15 23 42 / 0.05), rgb(15 23 42 / 0.02));
 }
@@ -843,7 +837,6 @@ select.song-toolbar-select:focus-visible {
   border-color: #1e1b4b;
 }
 
-[data-theme='cartoon'] .neural-panel,
 [data-theme='cartoon'] .song-grid-shell {
   background: rgb(255 255 255 / 0.55);
 }
@@ -911,10 +904,6 @@ select.song-toolbar-select:focus-visible {
   background: linear-gradient(120deg, rgb(249 115 22 / 0.1), rgb(244 114 182 / 0.06));
 }
 
-[data-theme='sunset'] .neural-band {
-  background: linear-gradient(180deg, rgb(249 115 22 / 0.95), rgb(244 114 182 / 0.42));
-}
-
 [data-theme='sunset'] *::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgb(249 115 22 / 0.7), rgb(244 114 182 / 0.55));
 }
@@ -941,10 +930,6 @@ select.song-toolbar-select:focus-visible {
 
 [data-theme='pink'] .song-toolbar {
   background: linear-gradient(120deg, rgb(217 70 239 / 0.1), rgb(251 113 133 / 0.06));
-}
-
-[data-theme='pink'] .neural-band {
-  background: linear-gradient(180deg, rgb(217 70 239 / 0.95), rgb(251 113 133 / 0.42));
 }
 
 [data-theme='pink'] *::-webkit-scrollbar-thumb {
@@ -995,10 +980,6 @@ select.song-toolbar-select:focus-visible {
 
 [data-theme='terminal'] .song-toolbar {
   background: linear-gradient(120deg, rgb(74 222 128 / 0.08), rgb(163 230 53 / 0.05));
-}
-
-[data-theme='terminal'] .neural-band {
-  background: linear-gradient(180deg, rgb(74 222 128 / 0.95), rgb(163 230 53 / 0.42));
 }
 
 [data-theme='terminal'] *::-webkit-scrollbar-thumb {
@@ -1061,7 +1042,6 @@ select.song-toolbar-select:focus-visible {
   background: #f0eee9;
 }
 
-[data-theme='paper'] .neural-panel,
 [data-theme='paper'] .song-grid-shell {
   background: rgb(28 25 23 / 0.03);
 }
@@ -1146,10 +1126,6 @@ select.song-toolbar-select:focus-visible {
 
 [data-theme='blueprint'] .song-toolbar {
   background: linear-gradient(120deg, rgb(56 189 248 / 0.1), rgb(186 230 253 / 0.05));
-}
-
-[data-theme='blueprint'] .neural-band {
-  background: linear-gradient(180deg, rgb(125 211 252 / 0.95), rgb(224 242 254 / 0.42));
 }
 
 [data-theme='blueprint'] *::-webkit-scrollbar-thumb {

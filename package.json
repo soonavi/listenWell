@@ -1,7 +1,7 @@
 {
   "name": "listenwell",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "ListenWell — your personal music player",
   "author": "soonavi",
   "type": "module",

@@ -66,6 +66,19 @@ grant select, insert, update, delete on public.tracks to authenticated;
 -- Per-account upload cap, enforced in the database so it can't be bypassed by
 -- calling the API directly (the client also checks this for a friendly error).
 -- Change `max_uploads` here when you revise the limit.
+--
+-- NOT CURRENTLY DEPLOYED. As of 2026-07-28 the live project has no trigger on
+-- public.tracks, so nothing caps uploads server-side and the client check is the
+-- only limit in force. Accounts have grown past 50 in the meantime — one is at
+-- 93 — so applying this section as written would not merely restore the cap, it
+-- would lock those accounts out of uploading anything further. Exempt them, or
+-- raise max_uploads above the largest existing library, before running it.
+--
+-- The exempt list has to live here as well as in the client. The client's copy
+-- only decides whether to show the friendly error; this trigger is what the
+-- insert actually has to get past, so an account listed there and not here
+-- still hits a raw database exception on its fifty-first upload. Keep the two
+-- lists in step — `UNLIMITED_UPLOAD_EMAILS` in src/App.jsx is the other half.
 create or replace function public.enforce_track_upload_limit()
 returns trigger
 language plpgsql
@@ -75,7 +88,19 @@ as $$
 declare
   track_count integer;
   max_uploads constant integer := 50;
+  -- Lowercase; the address read back from auth.users is folded to match.
+  unlimited_emails constant text[] := array[
+    'attakhelicoptir@gmail.com',
+    'tonytcr2006@gmail.com',
+    'davidle826@gmail.com'
+  ];
+  account_email text;
 begin
+  select lower(email) into account_email from auth.users where id = new.user_id;
+  if account_email = any (unlimited_emails) then
+    return new;
+  end if;
+
   select count(*) into track_count from public.tracks where user_id = new.user_id;
   if track_count >= max_uploads then
     raise exception 'Upload limit reached: a maximum of % songs are allowed per account.', max_uploads
