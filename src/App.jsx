@@ -28,6 +28,7 @@ import AuthScreen from './components/AuthScreen'
 import LegalModal from './components/LegalModal'
 import Equalizer from './components/Equalizer'
 import ListeningLogScreen from './components/ListeningLogScreen'
+import { THEMES, normalizeThemeId, themeTone } from './utils/themes'
 import CoverCropModal from './components/CoverCropModal'
 import CommandPalette from './components/CommandPalette'
 // eslint-disable-next-line no-unused-vars
@@ -94,14 +95,6 @@ function createSafeId(prefix = 'id') {
 }
 
 // Playlist accent colour presets (hex → space-separated RGB for CSS var)
-const THEMES = [
-  { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'sunset', label: 'Sunset' },
-  { id: 'pink', label: 'Pink' }, { id: 'cartoon', label: 'Cartoon' }, { id: 'terminal', label: 'Terminal' },
-  { id: 'paper', label: 'Paper' }, { id: 'blueprint', label: 'Blueprint' }, { id: 'chrome', label: 'Chrome' },
-  { id: 'bubblegum', label: 'Bubblegum' }, { id: 'ocean', label: 'Ocean' }, { id: 'ember', label: 'Ember' },
-  { id: 'moss', label: 'Moss' },
-]
-
 const ACCENT_PRESETS = [
   { hex: '#7c3aed', rgb: '124 58 237', label: 'Violet' },
   { hex: '#2563eb', rgb: '37 99 235',  label: 'Blue' },
@@ -138,27 +131,6 @@ function parseStoredJSON(key, fallback) {
   try { return JSON.parse(stored) } catch { return fallback }
 }
 
-function normalizeThemeId(themeId) {
-  const map = {
-    'deep-space': 'dark',
-    'neon-grid': 'dark',
-    hologram: 'pink',
-    light: 'light',
-    dark: 'dark',
-    sunset: 'sunset',
-    pink: 'pink',
-    cartoon: 'cartoon',
-    terminal: 'terminal',
-    paper: 'paper',
-    blueprint: 'blueprint',
-    chrome: 'chrome',
-    bubblegum: 'bubblegum',
-    ocean: 'ocean',
-    ember: 'ember',
-    moss: 'moss',
-  }
-  return map[themeId] || 'dark'
-}
 
 // Minimal inline ID3v2 tag reader — no external dependency
 async function readAudioTags(file) {
@@ -319,6 +291,8 @@ function App() {
   const [songFilter, setSongFilter] = useState('all')
   const [songSortBy, setSongSortBy] = useState('default')
   const [songTileSize, setSongTileSize] = useState(() => safeGetStorage('listenwell-tile-size', 'medium'))
+  // How the Songs page lays entries out: 'grid' of artwork or 'bars' of rows.
+  const [songViewMode, setSongViewMode] = useState(() => safeGetStorage('listenwell-song-view', 'grid'))
   const [lovedSongIds, setLovedSongIds] = useState(() => parseStoredJSON('listenwell-loved', []))
   const [showNowPlayingAddMenu, setShowNowPlayingAddMenu] = useState(false)
   const [shuffle, setShuffle] = useState(false)
@@ -1446,15 +1420,32 @@ function App() {
   const nowPlayingId = nowPlaying?.id
   const nowPlayingUrl = nowPlaying?.url
   const nowPlayingHasPeaks = Boolean(nowPlaying?.peaks)
+  // Only ever attempt a given track once per session. Without this, a track
+  // the browser cannot decode re-downloaded itself in full on every single
+  // play, forever.
+  const peaksAttemptedRef = useRef(new Set())
   useEffect(() => {
     if (!nowPlayingId || !nowPlayingUrl || nowPlayingHasPeaks) return
     if (nowPlayingUrl.startsWith('blob:')) return
+    if (peaksAttemptedRef.current.has(nowPlayingId)) return
+
     let cancelled = false
+    const controller = new AbortController()
+
+    // This downloads the entire track and decodes it to PCM to draw the
+    // scrubber. That is a big transient allocation, and doing it while the
+    // phone has the tab in the background is how a backgrounded tab gets
+    // reclaimed mid-song. The waveform is invisible then anyway, so wait until
+    // the tab is on screen, and abandon the attempt the moment it leaves.
     const run = async () => {
+      if (document.visibilityState !== 'visible') return
+      peaksAttemptedRef.current.add(nowPlayingId)
       try {
-        const response = await fetch(nowPlayingUrl)
-        if (!response.ok) return
-        const peaks = await extractPeaksFromFile(await response.blob())
+        const response = await fetch(nowPlayingUrl, { signal: controller.signal })
+        if (!response.ok || cancelled) return
+        const blob = await response.blob()
+        if (cancelled || document.visibilityState !== 'visible') return
+        const peaks = await extractPeaksFromFile(blob)
         if (!peaks || cancelled) return
         setSongs((prev) => prev.map((s) => (s.id === nowPlayingId ? { ...s, peaks } : s)))
         persistSongMeta(nowPlayingId, { peaks })
@@ -1462,8 +1453,18 @@ function App() {
         // A flat scrubber is an acceptable outcome; nothing to report.
       }
     }
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') run()
+      else controller.abort()
+    }
     run()
-    return () => { cancelled = true }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      cancelled = true
+      controller.abort()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [nowPlayingId, nowPlayingUrl, nowPlayingHasPeaks, persistSongMeta])
   const effectivePlaybackRate = clampPlaybackRate(playbackRate)
 
@@ -1686,6 +1687,7 @@ function App() {
   useEffect(() => { safeSetStorage('listenwell-art-color', String(artColorExtract)) }, [artColorExtract])
   useEffect(() => { if (displayName) safeSetStorage('listenwell-display-name', displayName) }, [displayName])
   useEffect(() => { safeSetStorage('listenwell-tile-size', songTileSize) }, [songTileSize])
+  useEffect(() => { safeSetStorage('listenwell-song-view', songViewMode) }, [songViewMode])
   useEffect(() => { safeSetStorage('listenwell-songmeta', JSON.stringify(songMeta)) }, [songMeta])
   useEffect(() => {
     if (songsBgUrl) safeSetStorage('listenwell-songs-bg', songsBgUrl)
@@ -1717,6 +1719,7 @@ function App() {
     profilePicUrl,
     displayName,
     songTileSize,
+    songViewMode,
     volume,
     playbackRate,
     eqPreset,
@@ -2019,6 +2022,7 @@ function App() {
         if (typeof d.profilePicUrl === 'string' || d.profilePicUrl === null) setProfilePicUrl(d.profilePicUrl)
         if (typeof d.displayName === 'string') setDisplayName(d.displayName)
         if (typeof d.songTileSize === 'string') setSongTileSize(d.songTileSize)
+        if (d.songViewMode === 'grid' || d.songViewMode === 'bars') setSongViewMode(d.songViewMode)
         if (typeof d.volume === 'number') setVolume(Math.min(1, Math.max(0, d.volume)))
         if (typeof d.playbackRate === 'number') setPlaybackRate(clampPlaybackRate(d.playbackRate))
         if (typeof d.eqPreset === 'string') setEqPreset(d.eqPreset)
@@ -2051,7 +2055,7 @@ function App() {
     }, 1200)
     return () => window.clearTimeout(userStateTimerRef.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize, volume, playbackRate, eqPreset, songMeta, songsBgUrl, songsBgBlur])
+  }, [user, playlists, lovedSongIds, playCounts, recentItems, theme, repeat, volumeNormalization, crossfadeDuration, artColorExtract, eqRingColor, customEqGains, savedPresets, auroraIntensity, glowSoftness, blurAmount, profilePicUrl, displayName, songTileSize, songViewMode, volume, playbackRate, eqPreset, songMeta, songsBgUrl, songsBgBlur])
 
   // When persisted meta arrives from user_state after songs have already loaded
   // (login race), fill in any gainDb/bpm/description still at their defaults.
@@ -2783,6 +2787,7 @@ function App() {
     <div
       ref={rootRef}
       data-theme={theme}
+      data-tone={themeTone(theme)}
       className="relative flex flex-col min-h-screen w-full bg-[#0c0c0e] text-gray-100 overflow-hidden"
       style={{
         '--accent-rgb': playlistAccentOverride || accentColor,
@@ -3450,6 +3455,8 @@ function App() {
                 playCounts={playCounts}
                 tileSize={songTileSize}
                 onChangeTileSize={setSongTileSize}
+                viewMode={songViewMode}
+                onChangeViewMode={setSongViewMode}
                 onChangeSongFilter={setSongFilter}
                 onChangeSortBy={setSongSortBy}
                 onToggleLoved={toggleLovedSong}
@@ -3619,7 +3626,7 @@ function App() {
               /* rounded-xl, a hairline ring and a drop shadow to match the card
                  language used elsewhere — against an arbitrary artwork-derived
                  colour the bar previously blended into whatever sat behind it */
-              className="relative flex items-center gap-2.5 rounded-xl pl-1.5 pr-1 py-1.5 overflow-hidden cursor-pointer select-none shadow-lg shadow-black/30 ring-1 ring-white/10"
+              className="fixed-dark-surface relative flex items-center gap-2.5 rounded-xl pl-1.5 pr-1 py-1.5 overflow-hidden cursor-pointer select-none shadow-lg shadow-black/30 ring-1 ring-white/10"
               style={{ backgroundColor: `rgb(${miniBarColor})` }}
             >
               <div className="w-10 h-10 rounded-md overflow-hidden bg-black/25 flex items-center justify-center shrink-0">

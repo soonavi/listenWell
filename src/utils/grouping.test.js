@@ -5,7 +5,6 @@ import {
   groupByAlbum,
   groupByArtist,
   filterGroups,
-  UNKNOWN_ALBUM,
   UNKNOWN_ARTIST,
 } from './grouping.js'
 
@@ -18,7 +17,7 @@ const songs = [
 
 test('albums group by album and artist together', () => {
   const albums = groupByAlbum(songs)
-  assert.equal(albums.length, 3)
+  assert.equal(albums.length, 2)
   const geogaddi = albums.find((a) => a.album === 'Geogaddi')
   assert.equal(geogaddi.songs.length, 2)
   assert.equal(geogaddi.artist, 'Boards of Canada')
@@ -37,16 +36,24 @@ test('the first available cover represents the album', () => {
   assert.equal(geogaddi.coverUrl, 'cover-a')
 })
 
-test('missing tags fall back to explicit unknown labels', () => {
+test('an untagged upload is not turned into an album', () => {
   const albums = groupByAlbum(songs)
-  const unknown = albums.find((a) => a.album === UNKNOWN_ALBUM)
-  assert.ok(unknown)
-  assert.equal(unknown.artist, UNKNOWN_ARTIST)
+  assert.deepEqual(albums.map((a) => a.album), ['Drukqs', 'Geogaddi'])
+  assert.ok(albums.every((a) => !a.songs.some((s) => s.id === '4')))
 })
 
-test('unknowns sort last', () => {
-  const albums = groupByAlbum(songs)
-  assert.equal(albums[albums.length - 1].album, UNKNOWN_ALBUM)
+test('an album still keeps an untagged artist under the unknown label', () => {
+  const albums = groupByAlbum([{ id: 'a', artist: '', album: 'Bootleg' }])
+  assert.equal(albums[0].artist, UNKNOWN_ARTIST)
+})
+
+test('an artist counts only the albums that were named', () => {
+  const artists = groupByArtist([
+    { id: 'a', artist: 'Solo Act', album: '' },
+    { id: 'b', artist: 'Solo Act', album: 'Real Record' },
+  ])
+  assert.deepEqual(artists[0].albums, ['Real Record'])
+  assert.equal(artists[0].songs.length, 2, 'the untagged track still belongs to the artist')
 })
 
 test('artists group with their distinct albums listed', () => {
@@ -77,6 +84,7 @@ test('filtering matches album or artist text', () => {
   const albums = groupByAlbum(songs)
   assert.equal(filterGroups(albums, 'drukqs').length, 1)
   assert.equal(filterGroups(albums, 'boards').length, 1)
+  assert.equal(filterGroups(albums, 'geogaddi').length, 1)
   assert.equal(filterGroups(albums, '').length, albums.length)
   assert.equal(filterGroups(albums, 'nothing here').length, 0)
 })

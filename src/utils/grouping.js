@@ -8,19 +8,25 @@
 import { normalizeForMatch } from './duplicates.js'
 
 export const UNKNOWN_ARTIST = 'Unknown artist'
-export const UNKNOWN_ALBUM = 'Unknown album'
 
 /**
  * Group songs into albums, keyed by album + album artist so that two different
  * records sharing a title ("Greatest Hits") stay separate.
  *
- * @returns [{ key, album, artist, songs, coverUrl, year }] sorted by artist then album
+ * Only songs carrying an album name are grouped. Uploading a file is not the
+ * same as making a record: an untagged track is a loose track, and collecting
+ * every one of them under a placeholder "Unknown album" would fill this view
+ * with albums the listener never made. Name the album on the track and it
+ * appears here.
+ *
+ * @returns [{ key, album, artist, songs, coverUrl }] sorted by artist then album
  */
 export function groupByAlbum(songs = []) {
   const groups = new Map()
 
   for (const song of songs) {
-    const album = (song.album || '').trim() || UNKNOWN_ALBUM
+    const album = (song.album || '').trim()
+    if (!album) continue
     const artist = (song.artist || '').trim() || UNKNOWN_ARTIST
     const key = `${normalizeForMatch(album)}|${normalizeForMatch(artist)}`
 
@@ -57,8 +63,10 @@ export function groupByArtist(songs = []) {
     group.songs.push(song)
     if (!group.coverUrl && song.coverUrl) group.coverUrl = song.coverUrl
 
-    const album = (song.album || '').trim() || UNKNOWN_ALBUM
-    if (!group.albums.includes(album)) group.albums.push(album)
+    // Same rule as groupByAlbum — an artist's album count reflects the records
+    // that were actually named, not one placeholder per untagged upload.
+    const album = (song.album || '').trim()
+    if (album && !group.albums.includes(album)) group.albums.push(album)
   }
 
   return [...groups.values()].sort((a, b) => collate(a.artist, b.artist))
@@ -66,8 +74,8 @@ export function groupByArtist(songs = []) {
 
 /** Unknowns sort last; everything else alphabetically, case-insensitively. */
 function collate(a, b) {
-  const aUnknown = a === UNKNOWN_ARTIST || a === UNKNOWN_ALBUM
-  const bUnknown = b === UNKNOWN_ARTIST || b === UNKNOWN_ALBUM
+  const aUnknown = a === UNKNOWN_ARTIST
+  const bUnknown = b === UNKNOWN_ARTIST
   if (aUnknown !== bUnknown) return aUnknown ? 1 : -1
   return a.localeCompare(b, undefined, { sensitivity: 'base' })
 }

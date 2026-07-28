@@ -92,17 +92,28 @@ export function decodePeaks(stored) {
  * a plain scrubber rather than breaking.
  */
 export async function extractPeaksFromFile(file, bucketCount = PEAK_BUCKETS) {
+  let context = null
   try {
     const AudioContextClass = window.OfflineAudioContext || window.webkitOfflineAudioContext
     if (!AudioContextClass) return null
     const buffer = await file.arrayBuffer()
     // A 1-channel context at a low rate is enough: we only need amplitude
     // shape, not fidelity, and it decodes considerably faster.
-    const context = new AudioContextClass(1, 1, 22050)
+    context = new AudioContextClass(1, 1, 22050)
     const audio = await context.decodeAudioData(buffer)
     return encodePeaks(computePeaks(audio.getChannelData(0), bucketCount))
   } catch {
     return null
+  } finally {
+    // decodeAudioData holds the whole track as PCM — tens of megabytes for an
+    // ordinary song — and the context keeps it alive until it is closed. The
+    // sibling analyser in audioAnalysis.js has always closed its context; this
+    // one never did, so every track decoded here left its buffer resident. On
+    // a phone that is exactly the kind of resident memory that gets a
+    // backgrounded tab reclaimed, which stops playback.
+    if (typeof context?.close === 'function') {
+      try { await context.close() } catch { /* already closed, or unsupported */ }
+    }
   }
 }
 

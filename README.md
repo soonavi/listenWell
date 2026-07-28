@@ -8,15 +8,17 @@ own audio files, they are stored privately in your account, and you play them fr
 any device through an interface built for control rather than engagement.
 
 React + Vite on the front end, Supabase for auth/database/storage, Web Audio API for
-playback. Runs as a web app, an installable PWA, or a packaged Windows desktop app.
+playback. Runs as a web app, an installable PWA, or a packaged desktop app for Windows,
+macOS, and Linux.
 
-### ⬇️ [Open the web app](https://listen-well-eight.vercel.app) · [Download for Windows](https://github.com/soonavi/listenWell/releases/latest) · [Install instructions](#download--install)
+### ⬇️ [Open the web app](https://listen-well-eight.vercel.app) · [Download the desktop app](https://github.com/soonavi/listenWell/releases/latest) · [Install instructions](#download--install) · [Updating](#updating)
 
 ---
 
 ## Table of contents
 
 - [Download & install](#download--install)
+- [Updating](#updating)
 - [Core philosophy](#core-philosophy)
 - [Features](#features)
 - [Tech stack](#tech-stack)
@@ -46,21 +48,53 @@ live in your ListenWell account, so everything follows you between them.
 Open **[listen-well-eight.vercel.app](https://listen-well-eight.vercel.app)** and sign in
 or create an account with an email and password. This is always the newest build.
 
-### Windows desktop
+### Desktop — Windows, macOS, Linux
 
-1. Go to the **[latest release](https://github.com/soonavi/listenWell/releases/latest)** and
-   download `ListenWell.Setup.<version>.exe` from the **Assets** section (~112 MB).
-2. Run the installer. Windows will likely show a **"Windows protected your PC"** screen —
-   click **More info → Run anyway**. The app is unsigned, which is normal for independent
-   software.
-3. The installer lets you choose the install directory. Launch **ListenWell** from the
-   Start menu and sign in with your existing account.
+Every download lives on the
+**[latest release](https://github.com/soonavi/listenWell/releases/latest)** page, under
+**Assets**. Pick the one file that matches your machine — the rest are for the built-in
+updater and you can ignore them.
 
-**Requirements:** Windows 10 or later (64-bit) and an internet connection, since your
-library is stored in your account rather than on the machine.
+| Your machine | Download | Size |
+| --- | --- | --- |
+| Windows 10/11 (64-bit) | `ListenWell.Setup.<version>.exe` | ~108 MB |
+| Mac with Apple Silicon (M1 or later) | `ListenWell-<version>-arm64.dmg` | ~128 MB |
+| Linux (any distro, x86-64) | `ListenWell-<version>.AppImage` | ~141 MB |
 
-macOS and Linux installers are not built yet — use the web app or
-[build from source](#getting-started).
+The `latest*.yml` and `.blockmap` files are how the app finds and downloads its own
+updates. You never need to download them by hand.
+
+**Windows.** Run the installer. Windows will show a **"Windows protected your PC"**
+screen — click **More info → Run anyway**. The app is unsigned, which is normal for
+independent software and is not something the installer can suppress. You can choose the
+install directory; then launch **ListenWell** from the Start menu.
+
+**macOS.** Open the `.dmg` and drag ListenWell to Applications. The app is unsigned and
+un-notarized, so the first launch is blocked: **right-click (or Control-click) the app →
+Open → Open**. Double-clicking will only offer "Move to Bin". You only have to do this
+once per installed version. If macOS insists the app "is damaged", clear the quarantine
+flag and open it again:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/ListenWell.app
+```
+
+> **Intel Macs are not covered.** The release builds Apple Silicon (`arm64`) only. On an
+> Intel Mac, use the web app or [build from source](#getting-started).
+
+**Linux.** An AppImage needs no installation — mark it executable and run it:
+
+```bash
+chmod +x ListenWell-<version>.AppImage
+./ListenWell-<version>.AppImage
+```
+
+Some distributions need FUSE 2 for AppImages (`sudo apt install libfuse2` on Debian and
+Ubuntu). Failing that, `./ListenWell-<version>.AppImage --appimage-extract-and-run` works
+without it.
+
+**All three** need an internet connection, because your library lives in your account
+rather than on the machine.
 
 ### Phone / tablet — install as an app
 
@@ -77,7 +111,54 @@ touch-draggable queue.
 ### Build it yourself
 
 See [Getting started](#getting-started) to run the dev server, or
-[Desktop build](#desktop-build-electron) to package your own Windows installer.
+[Desktop build](#desktop-build-electron) to package your own installers.
+
+---
+
+## Updating
+
+Nothing you have to remember, on any platform except one.
+
+### Web and phone — automatic
+
+The web app deploys from `main`, so loading the page gives you the newest build. The
+service worker serves navigations network-first, which means an installed PWA picks up a
+new version the next time you open it with a connection. There is no update button and
+nothing to clear.
+
+If a PWA ever looks stale, fully close it (swipe it away from the app switcher rather
+than backgrounding it) and reopen it.
+
+### Desktop — Windows and Linux, on a prompt
+
+The desktop app checks for updates **once, at launch**, and never downloads anything
+without asking:
+
+1. If a newer version exists, a dialog offers **Download** or **Not now**.
+2. Choose Download and it fetches in the background — only the changed chunks, not the
+   whole installer, because of those `.blockmap` files.
+3. When it finishes, a second dialog offers **Restart now** or **Later**. Choosing Later
+   installs the update the next time you quit.
+
+Declining costs nothing; it asks again the next time you start the app. A failed check
+(no connection, GitHub unreachable) is ignored silently rather than interrupting you.
+
+### Desktop — macOS, by hand
+
+**macOS is the exception: the in-app updater cannot update this app.** Applying an update
+on macOS requires a valid code signature, and these builds are unsigned. The check runs
+and fails quietly, so you will not see an error — you will simply never be prompted.
+
+To update a Mac, download the new `.dmg` from the
+[latest release](https://github.com/soonavi/listenWell/releases/latest) and drag it over
+the old app, right-clicking to open it the first time as above. Signing and notarizing
+the macOS build would fix this and needs an Apple Developer account.
+
+### What an update does not touch
+
+Your library, playlists, loved tracks, play counts, and settings live in your ListenWell
+account, not in the app. Updating, reinstalling, or moving to a different machine leaves
+all of it intact — sign in and it is there.
 
 ---
 
@@ -153,7 +234,8 @@ Full product positioning lives in [`PRODUCT.md`](PRODUCT.md).
   assets) and proper home-screen icons
 - Mobile layout with a bottom player bar tinted from the current cover art, swipe to skip,
   and a touch-draggable queue
-- Packaged Windows desktop app via Electron + electron-builder
+- Packaged desktop app for Windows, macOS, and Linux via Electron + electron-builder,
+  with an in-app updater that prompts rather than installing behind your back
 - Keyboard shortcuts with an in-app, draggable reference modal
 - Error boundary around the app shell; upload failures surface as toasts and fall back to
   a session-only object URL so the track still plays
@@ -217,9 +299,13 @@ put a service-role key here. `.env` is gitignored; only `.env.example` is tracke
 | `npm run preview` | Serve the production build locally |
 | `npm run lint` | ESLint across the repo |
 | `npm run electron` | Launch the Electron shell against the current build |
+| `npm run test` | Node's built-in test runner across `src/**/*.test.js` |
 | `npm run dist:win` | Build web assets, then package a Windows NSIS installer into `release/` |
+| `npm run dist:mac` | Same, for a macOS `.dmg` and `.zip` (builds for the host architecture) |
+| `npm run dist:linux` | Same, for a Linux `.AppImage` |
 
-There is no test suite configured yet.
+Each `dist:*` target only builds for the platform it names, and electron-builder can only
+build a macOS package on macOS.
 
 ## Supabase setup
 
@@ -252,7 +338,7 @@ Email/password auth must be enabled in Supabase → Authentication → Providers
 
 ```
 listenWell/
-├─ .github/workflows/       # Windows desktop release workflow
+├─ .github/workflows/       # Desktop release workflow (Windows, macOS, Linux)
 ├─ build/                   # electron-builder resources (icons)
 ├─ electron/
 │  └─ main.cjs              # Electron main process; external links open in the OS browser
@@ -376,23 +462,35 @@ and `nodeIntegration: false`. External links are handed to the OS browser rather
 opening inside the app. In development it loads `VITE_DEV_SERVER_URL` when set; otherwise
 it loads `dist/index.html` from disk.
 
-Build a Windows installer locally:
+`setUpAutoUpdates()` wires `electron-updater` to GitHub Releases. It runs only in a
+packaged app, checks once at launch, and sets `autoDownload = false` so a download is
+always the user's choice — see [Updating](#updating) for what that looks like from the
+outside.
+
+Package locally (each target must be built on its own platform):
 
 ```bash
 npm run dist:win     # → release/*.exe (NSIS, user-selectable install directory)
+npm run dist:mac     # → release/*.dmg + *.zip
+npm run dist:linux   # → release/*.AppImage
 ```
 
 ### Releasing
 
-`.github/workflows` builds the Windows installer on every `v*` tag push and on manual
-dispatch. The installer is always uploaded as a workflow artifact; tagged builds also
-attach it to a GitHub Release, which is what
-[the download link](#windows-desktop) points at.
+`.github/workflows/desktop-release.yml` builds all three platforms in parallel on every
+`v*` tag push and on manual dispatch, running `npm test` before packaging. Installers are
+always uploaded as workflow artifacts; tagged builds also attach them to a GitHub Release,
+which is what [the download links](#desktop--windows-macos-linux) point at.
 
 ```bash
-git tag v0.1.3
-git push origin v0.1.3     # → builds, releases, and attaches the .exe
+git tag v0.2.2
+git push origin v0.2.2     # → builds, releases, and attaches every installer
 ```
+
+Each platform also uploads the `latest*.yml` feed that `electron-updater` polls, plus
+`.blockmap` files that let it download only the changed chunks. A release missing its
+`latest*.yml` leaves every existing install unable to see the new version, so the workflow
+treats a missing file as a build failure (`if-no-files-found: error`).
 
 Because `.env` is no longer tracked in the repo, CI needs `VITE_SUPABASE_URL` and
 `VITE_SUPABASE_ANON_KEY` supplied as repository secrets and exported on the
@@ -426,13 +524,19 @@ The complete spec is in [`DESIGN.md`](DESIGN.md). In brief:
 - **50 songs per account**, enforced both client-side (for a friendly error) and by a
   database trigger. Change `max_uploads` in `supabase/setup.sql` to adjust it; a small
   hardcoded email allowlist in `App.jsx` bypasses the cap.
-- **No test suite.** Verification is manual plus `npm run lint`.
+- **Test coverage is partial.** `npm test` covers the pure utility modules; screens and
+  the audio pipeline are verified manually plus `npm run lint`.
 - **`App.jsx` is monolithic** (~3,700 lines). Extracting screens and hooks is the obvious
   next refactor, but it has not happened yet.
 - **Audio analysis reads the first ~90 s / ~12 MB** of each file, so normalization gain and
   BPM are estimates for long tracks.
 - **Signed URLs expire after 7 days**, refreshed on login.
-- **Desktop packaging is Windows-only** today; macOS and Linux targets are not configured.
+- **Desktop builds are unsigned**, so Windows shows a SmartScreen warning and macOS
+  requires right-click → Open on first launch. Code signing needs paid certificates.
+- **The macOS build is Apple Silicon only** (`arm64`); there is no Intel package.
+- **In-app updates do not work on macOS.** `electron-updater` will not apply an update to
+  an unsigned app, so Mac users re-download the `.dmg` by hand. Windows and Linux update
+  in place.
 - **Browser support** requires the Web Audio API and modern ES modules — current Chrome,
   Edge, Firefox, and Safari.
 

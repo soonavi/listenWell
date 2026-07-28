@@ -1,13 +1,23 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars
 import { AnimatePresence, motion } from 'framer-motion'
-import { Music2, Heart, Plus, ChevronDown, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square, MoreVertical, Upload, CornerUpRight, Disc3, ArrowLeft, X, Download, ArrowDownToLine, CheckCircle2, HardDrive } from 'lucide-react'
+import { Music2, Heart, Plus, ChevronDown, ChevronRight, Trash2, ListPlus, ListMusic, Pencil, Grid3x3, Grid2x2, Square, LayoutGrid, Rows3, MoreVertical, Upload, CornerUpRight, Disc3, ArrowLeft, X, Download, ArrowDownToLine, CheckCircle2, HardDrive } from 'lucide-react'
 import { GooeyInput } from '@/components/ui/gooey-input'
 import { groupByAlbum, groupByArtist, filterGroups } from '@/utils/grouping'
 
 // Same list as UploadScreen — the explicit extensions matter on mobile pickers,
 // which can gray out files that only match by extension, not MIME type.
 const AUDIO_ACCEPT = 'audio/*,video/webm,video/ogg,.mp3,.m4a,.aac,.flac,.wav,.webm,.ogg,.opus'
+
+// One bar, and the vertical rhythm between bars. The virtualiser needs both as
+// numbers, so they live here rather than only in a class name.
+const BAR_HEIGHT = 56
+const BAR_GAP = 8
+
+const formatDuration = (seconds) => {
+  const total = Math.floor(seconds)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+}
 
 function SongsScreen({
   songs,
@@ -48,8 +58,13 @@ function SongsScreen({
   songsBgBlur = 8,
   tileSize = 'medium',
   onChangeTileSize,
+  viewMode = 'grid',
+  onChangeViewMode,
   searchFocusSignal = 0,
 }) {
+  // 'grid' is the artwork wall; 'bars' lists one row per entry, which fits far
+  // more of the library on screen and reads better on a phone.
+  const isBars = viewMode === 'bars'
   const [searchQuery, setSearchQuery] = useState('')
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
@@ -99,6 +114,16 @@ function SongsScreen({
   }, [browseMode, songs])
 
   const visibleGroups = useMemo(() => filterGroups(groups, searchQuery), [groups, searchQuery])
+
+  // An artist whose tracks carry no album name has no records to count, so the
+  // album clause drops out rather than reading "0 albums".
+  const groupSubtitle = (group) => {
+    const tracks = `${group.songs.length} track${group.songs.length === 1 ? '' : 's'}`
+    if (browseMode === 'albums') return `${group.artist} · ${tracks}`
+    const count = group.albums.length
+    return count ? `${count} album${count === 1 ? '' : 's'} · ${tracks}` : tracks
+  }
+
   const focusedGroup = useMemo(
     () => (focusedGroupKey ? groups.find((g) => g.key === focusedGroupKey) ?? null : null),
     [groups, focusedGroupKey],
@@ -188,11 +213,26 @@ function SongsScreen({
     }
   }, [visibleSongs.length])
 
+  // Switching layout changes the row stride, so a preserved offset would land
+  // somewhere unrelated in the new list. The offset is reset during render —
+  // same pattern as the browse-mode reset above — so the first paint of the new
+  // layout already slices from the top; the effect only pushes the viewport
+  // itself back, which is a DOM write, not state.
+  const [scrolledViewMode, setScrolledViewMode] = useState(viewMode)
+  if (viewMode !== scrolledViewMode) {
+    setScrolledViewMode(viewMode)
+    setScrollTop(0)
+  }
+  useLayoutEffect(() => {
+    if (gridViewportRef.current) gridViewportRef.current.scrollTop = 0
+  }, [viewMode])
+
   // Tile height is art (colWidth - 20px padding) + text block (60px incl. padding);
-  // row stride adds the grid gap
+  // row stride adds the grid gap. Bars are a single column of fixed-height rows.
   const baseColumns = viewportWidth >= 1024 ? 5 : viewportWidth >= 768 ? 4 : viewportWidth >= 640 ? 3 : 2
-  const virtualColumns = tileSize === 'small' ? baseColumns + 1 : tileSize === 'large' ? Math.max(1, baseColumns - 1) : baseColumns
-  const virtualGap = viewportWidth >= 640 ? 20 : 16
+  const gridColumns = tileSize === 'small' ? baseColumns + 1 : tileSize === 'large' ? Math.max(1, baseColumns - 1) : baseColumns
+  const virtualColumns = isBars ? 1 : gridColumns
+  const virtualGap = isBars ? BAR_GAP : viewportWidth >= 640 ? 20 : 16
   // Inner padding on the scroll viewport so hover-scaled tiles and selection
   // rings have room and aren't clipped at the edges. `viewportWidth` is the
   // viewport's clientWidth (includes this padding), so subtract it back out
@@ -200,7 +240,7 @@ function SongsScreen({
   const GRID_PAD = 12
   const innerWidth = Math.max(0, viewportWidth - GRID_PAD * 2)
   const colWidth = innerWidth > 0 ? (innerWidth - virtualGap * (virtualColumns - 1)) / virtualColumns : 220
-  const rowHeight = Math.round(colWidth + 60 + virtualGap)
+  const rowHeight = isBars ? BAR_HEIGHT + BAR_GAP : Math.round(colWidth + 60 + virtualGap)
   const virtualItems = useMemo(() => [...visibleSongs, { id: '__upload__', uploadTile: true }], [visibleSongs])
   const rowCount = Math.ceil(virtualItems.length / virtualColumns)
   const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - 1)
@@ -247,8 +287,14 @@ function SongsScreen({
   return (
     <>
       <section className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {/* Toolbar */}
-        <div className="mb-3 shrink-0 flex items-center gap-2">
+        {/* Toolbar.
+            Every control sat on one non-wrapping line, which a phone is far too
+            narrow to hold — the row pushed the page sideways and the search and
+            count fell off the right edge. The row wraps now, so on a small
+            screen the controls stack instead of overflowing, and the search
+            takes a line of its own (it grows to 220px when expanded, which is
+            most of a phone's width). */}
+        <div className="mb-3 shrink-0 flex flex-wrap items-center gap-2">
           {/* Sort dropdown */}
           <div className="relative shrink-0" ref={sortRef}>
             <button
@@ -333,8 +379,30 @@ function SongsScreen({
             </button>
           )}
 
-          {/* Tile size */}
-          {onChangeTileSize && (
+          {/* Layout — artwork grid or list of bars */}
+          {onChangeViewMode && (
+            <div className="shrink-0 flex items-center rounded-full border border-white/10 bg-white/[0.04] p-0.5" role="group" aria-label="Layout">
+              {[
+                { value: 'grid', label: 'Grid view', Icon: LayoutGrid },
+                { value: 'bars', label: 'Bar view', Icon: Rows3 },
+              ].map(({ value, label, Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={viewMode === value}
+                  onClick={() => onChangeViewMode(value)}
+                  className={`p-1.5 rounded-full transition-colors ${viewMode === value ? 'bg-violet-500/15 text-violet-300' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Tile size — grid only; bars are a fixed height */}
+          {onChangeTileSize && !isBars && (
             <div className="shrink-0 flex items-center rounded-full border border-white/10 bg-white/[0.04] p-0.5" role="group" aria-label="Tile size">
               {[
                 { value: 'small', label: 'Small tiles', Icon: Grid3x3 },
@@ -356,8 +424,11 @@ function SongsScreen({
             </div>
           )}
 
-          {/* Search */}
-          <div className="flex-1 flex items-center justify-end">
+          {/* Search. flex-auto rather than flex-1 on purpose: the field is a
+              fixed 220px once expanded, and only an auto basis lets the wrap
+              algorithm see that width and give it a line of its own instead of
+              letting it spill past the right edge. */}
+          <div className="flex-auto min-w-0 flex items-center justify-start sm:justify-end">
             <GooeyInput
               placeholder="Search…"
               value={searchQuery}
@@ -447,58 +518,92 @@ function SongsScreen({
         )}
 
         {focusedGroup && (
-          <div className="flex items-center gap-2 shrink-0 -mt-1">
+          <div className="flex items-center gap-2 shrink-0 min-w-0 -mt-1">
             <button
               type="button"
               onClick={() => setFocusedGroupKey(null)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-white/15 text-[11px] text-gray-300 hover:border-white/40 transition-colors"
+              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-white/15 text-[11px] text-gray-300 hover:border-white/40 transition-colors"
             >
               <ArrowLeft className="w-3 h-3" />
               All {browseMode === 'albums' ? 'albums' : 'artists'}
             </button>
-            <span className="text-xs text-gray-300 truncate">
+            <span className="text-xs text-gray-300 truncate min-w-0">
               {browseMode === 'albums' ? focusedGroup.album : focusedGroup.artist}
             </span>
             {browseMode === 'albums' && (
-              <span className="text-[11px] text-gray-600 truncate">· {focusedGroup.artist}</span>
+              <span className="hidden sm:block text-[11px] text-gray-600 truncate min-w-0">· {focusedGroup.artist}</span>
             )}
           </div>
         )}
 
         {browseMode !== 'songs' && !focusedGroup ? (
           visibleGroups.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-sm text-gray-500 gap-3">
+            <div className="flex-1 flex flex-col items-center justify-center text-center text-sm text-gray-500 gap-3 px-6">
               <Disc3 className="w-9 h-9 text-gray-700" />
-              <p>{normalizedQuery ? 'Nothing matches your search.' : 'No songs yet.'}</p>
+              <p>
+                {normalizedQuery
+                  ? 'Nothing matches your search.'
+                  : songs.length === 0
+                    ? 'No songs yet.'
+                    : browseMode === 'albums' ? 'No albums yet.' : 'No artists yet.'}
+              </p>
+              {/* An upload is not a record. Say where albums come from, so an
+                  empty shelf reads as "nothing named yet" rather than a bug. */}
+              {!normalizedQuery && songs.length > 0 && browseMode === 'albums' && (
+                <p className="text-xs text-gray-600 max-w-xs">
+                  Name a track&apos;s album in its details and the record shows up here.
+                </p>
+              )}
             </div>
           ) : (
             <div className="flex-1 rounded-2xl bg-white/[0.02] border border-white/[0.06] shadow-sm px-3 sm:px-4 py-3 sm:py-4 glass-card overflow-y-auto">
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5">
-                {visibleGroups.map((group) => (
-                  <button
-                    key={group.key}
-                    type="button"
-                    onClick={() => setFocusedGroupKey(group.key)}
-                    className="flex flex-col gap-2 text-left rounded-2xl p-2 transition-colors hover:bg-white/[0.04] group"
-                  >
-                    <div className={`w-full aspect-square overflow-hidden bg-white/[0.05] border border-white/10 flex items-center justify-center ${browseMode === 'artists' ? 'rounded-full' : 'rounded-xl'}`}>
-                      {group.coverUrl
-                        ? <img src={group.coverUrl} alt="" className="w-full h-full object-cover" />
-                        : <Disc3 className="w-8 h-8 text-gray-700" />}
-                    </div>
-                    <p className="text-sm font-medium truncate text-white/90">
-                      {browseMode === 'albums' ? group.album : group.artist}
-                    </p>
-                    <p className="text-[11px] text-gray-500 truncate">
-                      {browseMode === 'albums'
-                        ? group.artist
-                        : `${group.albums.length} album${group.albums.length === 1 ? '' : 's'}`}
-                      {' · '}
-                      {group.songs.length} track{group.songs.length === 1 ? '' : 's'}
-                    </p>
-                  </button>
-                ))}
-              </div>
+              {isBars ? (
+                <div className="flex flex-col" style={{ gap: `${BAR_GAP}px` }}>
+                  {visibleGroups.map((group) => (
+                    <button
+                      key={group.key}
+                      type="button"
+                      onClick={() => setFocusedGroupKey(group.key)}
+                      style={{ height: `${BAR_HEIGHT}px` }}
+                      className="flex items-center gap-3 px-2 sm:px-3 rounded-xl text-left transition-colors hover:bg-white/[0.04] active:bg-white/[0.06]"
+                    >
+                      <div className={`w-10 h-10 shrink-0 overflow-hidden bg-white/[0.05] border border-white/10 flex items-center justify-center ${browseMode === 'artists' ? 'rounded-full' : 'rounded-lg'}`}>
+                        {group.coverUrl
+                          ? <img src={group.coverUrl} alt="" className="w-full h-full object-cover" />
+                          : <Disc3 className="w-5 h-5 text-gray-700" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate text-white/90">
+                          {browseMode === 'albums' ? group.album : group.artist}
+                        </p>
+                        <p className="text-[11px] text-gray-500 truncate">{groupSubtitle(group)}</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 shrink-0 text-gray-600" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 sm:gap-5">
+                  {visibleGroups.map((group) => (
+                    <button
+                      key={group.key}
+                      type="button"
+                      onClick={() => setFocusedGroupKey(group.key)}
+                      className="flex flex-col gap-2 text-left rounded-2xl p-2 transition-colors hover:bg-white/[0.04] group"
+                    >
+                      <div className={`w-full aspect-square overflow-hidden bg-white/[0.05] border border-white/10 flex items-center justify-center ${browseMode === 'artists' ? 'rounded-full' : 'rounded-xl'}`}>
+                        {group.coverUrl
+                          ? <img src={group.coverUrl} alt="" className="w-full h-full object-cover" />
+                          : <Disc3 className="w-8 h-8 text-gray-700" />}
+                      </div>
+                      <p className="text-sm font-medium truncate text-white/90">
+                        {browseMode === 'albums' ? group.album : group.artist}
+                      </p>
+                      <p className="text-[11px] text-gray-500 truncate">{groupSubtitle(group)}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )
         ) : visibleSongs.length === 0 ? (
@@ -536,12 +641,27 @@ function SongsScreen({
                 }}
               />
             )}
-            <div ref={gridViewportRef} className="h-full overflow-y-auto relative z-[1] px-3 pt-3 pb-3">
+            {/* The side padding exists so hover-scaled tiles and their selection
+                rings aren't clipped. Bars neither scale nor ring-offset, so
+                they give the width back to the row — worth ~16px on a phone. */}
+            <div ref={gridViewportRef} className={`h-full overflow-y-auto relative z-[1] pt-3 pb-3 ${isBars ? 'px-1' : 'px-3'}`}>
               <div style={{ paddingTop: `${paddingTop}px`, paddingBottom: `${paddingBottom}px` }}>
                 <div className="grid" style={{ gridTemplateColumns: `repeat(${virtualColumns}, minmax(0, 1fr))`, gap: `${virtualGap}px` }}>
               {renderedItems.map((song) => {
                 if (song.uploadTile) {
-                  return (
+                  return isBars ? (
+                    <label
+                      key="upload-tile"
+                      style={{ height: `${BAR_HEIGHT}px` }}
+                      className="flex items-center gap-3 px-2 sm:px-3 rounded-xl border border-dashed border-white/20 bg-white/[0.02] hover:bg-white/[0.05] cursor-pointer transition-colors"
+                    >
+                      <span className="w-10 h-10 shrink-0 rounded-lg border border-white/25 inline-flex items-center justify-center text-gray-300">
+                        <Plus className="w-4 h-4" />
+                      </span>
+                      <span className="text-sm text-gray-400">Upload song</span>
+                      <input type="file" accept={AUDIO_ACCEPT} multiple className="hidden" onChange={onUploadMore} />
+                    </label>
+                  ) : (
                     <label key="upload-tile" className="rounded-2xl border border-dashed border-white/20 bg-white/[0.02] hover:bg-white/[0.05] cursor-pointer p-1 transition-all duration-200">
                       <div className="w-full aspect-square rounded-xl bg-white/[0.04] border border-white/10 flex flex-col items-center justify-center gap-2 text-gray-300">
                         <span className="w-10 h-10 rounded-full border border-white/30 inline-flex items-center justify-center">
@@ -554,6 +674,85 @@ function SongsScreen({
                   )
                 }
                 const i = songs.findIndex((s) => s.id === song.id)
+                const loved = lovedSongIds.includes(song.id)
+                const nowPlayingHere = currentTrackIndex === i && isPlaying
+                const rowTitle = song.title || song.fileName
+
+                if (isBars) {
+                  return (
+                    <div
+                      key={song.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${rowTitle} details`}
+                      onClick={(e) => handleTileClick(e, song, i)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectSong(i) } }}
+                      onContextMenu={(e) => openContextMenu(e, song, i)}
+                      aria-selected={selectedSet.has(song.id)}
+                      style={{ height: `${BAR_HEIGHT}px` }}
+                      className={`song-bar relative flex items-center gap-3 px-2 sm:px-3 rounded-xl cursor-pointer group text-left transition-colors ${
+                        selectedSet.has(song.id)
+                          ? 'ring-2 ring-cyan-400/70 bg-cyan-400/10'
+                          : i === selectedSongIndex
+                            ? 'ring-2 ring-violet-500 bg-white/[0.08]'
+                            : 'hover:bg-white/[0.04] active:bg-white/[0.06]'
+                      }`}
+                    >
+                      {/* The artwork is the play control. On a touch screen there
+                          is no hover to reveal it, so the glyph stays visible
+                          there rather than hiding behind a gesture the device
+                          cannot make. */}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onPlaySongClick(i) }}
+                        aria-label={nowPlayingHere ? `Pause ${rowTitle}` : `Play ${rowTitle}`}
+                        className="relative w-10 h-10 shrink-0 rounded-lg bg-white/[0.06] overflow-hidden flex items-center justify-center"
+                      >
+                        {song.coverUrl
+                          ? <img src={song.coverUrl} alt="" className="w-full h-full object-cover" />
+                          : <Music2 className="w-5 h-5 text-white/60" />}
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:bg-black/35">
+                          {nowPlayingHere
+                            ? <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" /></svg>
+                            : <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>}
+                        </span>
+                      </button>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate text-white/95">{rowTitle}</p>
+                        <p className="text-[11px] text-gray-500 truncate">
+                          {song.artist || 'Unknown artist'}{song.album ? ` · ${song.album}` : ''}
+                        </p>
+                      </div>
+
+                      {nowPlayingHere && (
+                        <span className="shrink-0 w-2 h-2 rounded-full bg-green-400 shadow-lg shadow-green-400/50 animate-pulse" />
+                      )}
+                      {Number.isFinite(song.duration) && song.duration > 0 && (
+                        <span className="hidden sm:block shrink-0 text-[11px] text-gray-600 tabular-nums">
+                          {formatDuration(song.duration)}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onToggleLoved(song.id) }}
+                        className={`inline-flex shrink-0 p-2 ${loved ? 'text-pink-400' : 'text-gray-600 hover:text-gray-400'}`}
+                        aria-label={loved ? 'Unlove' : 'Love'}
+                      >
+                        <Heart className="w-4 h-4" fill={loved ? 'currentColor' : 'none'} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => openContextMenu(e, song, i)}
+                        className="inline-flex shrink-0 p-2 text-gray-500 hover:text-white transition-colors"
+                        aria-label="Song options"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )
+                }
+
                 return (
                 <motion.div
                   key={song.id}
